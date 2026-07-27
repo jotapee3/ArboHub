@@ -1,0 +1,42 @@
+# Ambiente virtual
+.venv/
+venv/
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+
+# Arquivos de ambiente e credenciais
+.env
+*.env
+
+# Logs
+logs/
+*.log
+
+# Bancos de dados locais
+*.db
+*.sqlite
+*.sqlite3
+
+# Arquivos baixados e dados sensíveis
+downloads/
+data/
+dados/
+*.csv
+*.xlsx
+*.xls
+*.dbf
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+build/
+dist/
+*.spec

@@ -1,0 +1,10 @@
+📁 scripts
+
+Scripts auxiliares.
+
+Exemplo:
+
+gerar instalador
+gerar executável
+limpeza
+backup

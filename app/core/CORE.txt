@@ -1,0 +1,11 @@
+core
+
+É o "coração" do programa.
+
+Aqui ficarão coisas como:
+
+configuração
+logger
+banco de dados
+constantes
+inicialização

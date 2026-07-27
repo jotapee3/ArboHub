@@ -1,0 +1,10 @@
+utils
+
+Funções auxiliares reutilizáveis.
+
+Exemplo:
+
+formatar datas
+validar arquivos
+criar pastas
+etc.

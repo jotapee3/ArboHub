@@ -1,0 +1,5 @@
+📁 app
+
+Aqui ficará todo o código-fonte do programa.
+
+É a pasta mais importante do projeto.

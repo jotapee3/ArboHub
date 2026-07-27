@@ -1,0 +1,11 @@
+automation
+
+Tudo relacionado ao Playwright.
+
+No futuro aqui estarão:
+
+login no SINAN
+download
+navegação
+upload
+workflows

@@ -1,0 +1,11 @@
+📁 docs
+
+Toda a documentação.
+
+Por exemplo:
+
+requisitos
+roadmap
+arquitetura
+manual do usuário
+decisões do projeto

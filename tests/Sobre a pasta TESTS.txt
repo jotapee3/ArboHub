@@ -1,0 +1,3 @@
+📁 tests
+
+Quando começarmos os testes automatizados, eles ficarão aqui.
