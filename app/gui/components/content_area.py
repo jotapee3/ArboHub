@@ -1,26 +1,23 @@
 import customtkinter as ctk
 
-from app.gui.pages.dashboard_page import DashboardPage
+from app.gui.themes.colors import Colors
 
 
 class ContentArea(ctk.CTkFrame):
 
     def __init__(self, master):
-        super().__init__(master)
-
-        self.configure(corner_radius=0)
-
-        self.pack(
-            side="right",
-            fill="both",
-            expand=True
+        super().__init__(
+            master,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=0
         )
 
-        self.mostrar_pagina(DashboardPage)
+        self.pagina_atual = None
 
     def limpar_area(self):
-        for componente in self.winfo_children():
-            componente.destroy()
+        if self.pagina_atual is not None:
+            self.pagina_atual.destroy()
+            self.pagina_atual = None
 
     def mostrar_pagina(self, pagina):
         self.limpar_area()

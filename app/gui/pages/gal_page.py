@@ -3,8 +3,7 @@ import customtkinter as ctk
 from app.gui.themes.colors import Colors
 
 
-class SinanPage(ctk.CTkFrame):
-
+class GalPage(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(
             master,
@@ -14,7 +13,7 @@ class SinanPage(ctk.CTkFrame):
 
         titulo = ctk.CTkLabel(
             self,
-            text="SINAN",
+            text="GAL",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=30,
@@ -30,7 +29,7 @@ class SinanPage(ctk.CTkFrame):
 
         descricao = ctk.CTkLabel(
             self,
-            text="Automação e gerenciamento dos bancos de dados do SINAN.",
+            text="Automação e gerenciamento dos bancos de dados do GAL.",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=14
