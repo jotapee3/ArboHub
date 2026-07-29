@@ -436,6 +436,574 @@ class VerificacaoObitos:
             "dados_lidos": False
         }
 
+
+    def executar_consulta_por_agravo(
+        self,
+        agravo: str,
+        data_referencia: date | None = None
+    ) -> dict[str, str | bool | int]:
+        """
+        Executa a primeira consulta completa de um agravo.
+
+        Este método configura datas, agravo, localização, campo,
+        critério, adiciona o critério e pesquisa.
+        """
+
+        periodo = self.preencher_periodo_e_datas(
+            data_referencia=data_referencia
+        )
+
+        filtros = self.preencher_agravo_e_residencia(
+            agravo=agravo
+        )
+
+        criterio = self.preencher_criterio_obito()
+        adicao = self.adicionar_criterio_obito()
+        pesquisa = self.pesquisar_obitos()
+
+        return {
+            "agravo": filtros["agravo"],
+            "data_inicial": periodo["data_inicial"],
+            "data_final": periodo["data_final"],
+            "campo": criterio["campo"],
+            "criterio": criterio["criterio"],
+            "criterios_adicionados": int(
+                adicao["ocorrencias_depois"]
+            ),
+            "pesquisa_concluida": bool(
+                pesquisa["pesquisa_concluida"]
+            ),
+            "confirmacao": str(
+                pesquisa["confirmacao"]
+            ),
+            "dados_lidos": bool(
+                pesquisa["dados_lidos"]
+            )
+        }
+
+    def trocar_agravo_e_pesquisar(
+        self,
+        agravo: str
+    ) -> dict[str, str | bool | int]:
+        """
+        Troca somente o agravo e executa uma nova pesquisa.
+
+        O critério Evolução = 2 - Óbito por Agravo já adicionado
+        permanece na lista. Ele não é removido nem adicionado
+        novamente.
+        """
+
+        criterios_antes = (
+            self._contar_criterios_obito_registrados()
+        )
+
+        if criterios_antes < 1:
+            raise RuntimeError(
+                "Não há critério de óbito registrado para "
+                "reutilizar na troca de agravo."
+            )
+
+        filtros = self.preencher_agravo_e_residencia(
+            agravo=agravo
+        )
+
+        criterios_depois = (
+            self._contar_criterios_obito_registrados()
+        )
+
+        if criterios_depois < 1:
+            raise RuntimeError(
+                "O SINAN removeu o critério de óbito durante "
+                "a troca de agravo."
+            )
+
+        pesquisa = self.pesquisar_obitos()
+
+        return {
+            "agravo": filtros["agravo"],
+            "criterios_antes": criterios_antes,
+            "criterios_depois": criterios_depois,
+            "criterio_reutilizado": True,
+            "pesquisa_concluida": bool(
+                pesquisa["pesquisa_concluida"]
+            ),
+            "confirmacao": str(
+                pesquisa["confirmacao"]
+            ),
+            "dados_lidos": bool(
+                pesquisa["dados_lidos"]
+            )
+        }
+
+    def solicitar_confirmacao_conferencia(
+        self,
+        agravo: str,
+        acao_seguinte: str
+    ) -> dict[str, str | bool]:
+        """
+        Exibe uma pequena janela flutuante dentro do navegador.
+
+        O usuário informa se houve alteração e, quando houver,
+        descreve o que mudou. A janela é arrastável e não bloqueia
+        a interação com o restante da página do SINAN.
+
+        Nenhum dado apresentado nos resultados é lido pelo código.
+        Somente a resposta digitada pelo usuário é retornada.
+        """
+
+        self._garantir_pagina_aberta()
+        self.pagina.bring_to_front()
+
+        resultado = self.pagina.evaluate(
+            """
+            ({ agravo, acaoSeguinte }) => new Promise(resolve => {
+                const idRaiz = "arbohub-confirmacao-conferencia";
+
+                const existente = document.getElementById(idRaiz);
+
+                if (existente) {
+                    existente.remove();
+                }
+
+                const normalizarTexto = valor => (
+                    String(valor || "").trim()
+                );
+
+                const raiz = document.createElement("div");
+                raiz.id = idRaiz;
+
+                Object.assign(raiz.style, {
+                    position: "fixed",
+                    inset: "0",
+                    zIndex: "2147483647",
+                    pointerEvents: "none",
+                    fontFamily:
+                        '"Segoe UI", Arial, sans-serif'
+                });
+
+                const janela = document.createElement("section");
+
+                Object.assign(janela.style, {
+                    position: "absolute",
+                    left: "50%",
+                    top: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "min(440px, calc(100vw - 32px))",
+                    boxSizing: "border-box",
+                    borderRadius: "12px",
+                    border: "1px solid #30363d",
+                    background: "#161b22",
+                    color: "#f0f6fc",
+                    boxShadow:
+                        "0 18px 55px rgba(0, 0, 0, 0.48)",
+                    pointerEvents: "auto",
+                    overflow: "hidden"
+                });
+
+                const cabecalho = document.createElement("div");
+
+                Object.assign(cabecalho.style, {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "16px 18px",
+                    background: "#1c2128",
+                    borderBottom: "1px solid #30363d",
+                    cursor: "move",
+                    userSelect: "none"
+                });
+
+                const icone = document.createElement("div");
+                icone.textContent = "✓";
+
+                Object.assign(icone.style, {
+                    width: "34px",
+                    height: "34px",
+                    display: "grid",
+                    placeItems: "center",
+                    flex: "0 0 auto",
+                    borderRadius: "8px",
+                    background: "#21262d",
+                    color: "#58a6ff",
+                    fontWeight: "700",
+                    fontSize: "17px"
+                });
+
+                const blocoTitulo = document.createElement("div");
+                blocoTitulo.style.minWidth = "0";
+
+                const etiqueta = document.createElement("div");
+                etiqueta.textContent = "CONFERÊNCIA HUMANA";
+
+                Object.assign(etiqueta.style, {
+                    color: "#58a6ff",
+                    fontSize: "10px",
+                    fontWeight: "700",
+                    letterSpacing: "0.08em",
+                    marginBottom: "3px"
+                });
+
+                const titulo = document.createElement("div");
+                titulo.textContent = `Verificação de ${agravo}`;
+
+                Object.assign(titulo.style, {
+                    color: "#f0f6fc",
+                    fontSize: "17px",
+                    fontWeight: "700"
+                });
+
+                blocoTitulo.append(
+                    etiqueta,
+                    titulo
+                );
+
+                cabecalho.append(
+                    icone,
+                    blocoTitulo
+                );
+
+                const conteudo = document.createElement("div");
+
+                Object.assign(conteudo.style, {
+                    padding: "18px"
+                });
+
+                const orientacao = document.createElement("p");
+                orientacao.textContent =
+                    "Confira os resultados no SINAN. " +
+                    "Houve alguma alteração em relação " +
+                    "à verificação anterior?";
+
+                Object.assign(orientacao.style, {
+                    margin: "0 0 14px",
+                    color: "#c9d1d9",
+                    fontSize: "13px",
+                    lineHeight: "1.5"
+                });
+
+                const grupo = document.createElement("div");
+
+                Object.assign(grupo.style, {
+                    display: "grid",
+                    gap: "8px",
+                    marginBottom: "14px"
+                });
+
+                const criarOpcao = (
+                    valor,
+                    texto,
+                    marcada
+                ) => {
+                    const label = document.createElement("label");
+
+                    Object.assign(label.style, {
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "9px",
+                        padding: "10px 12px",
+                        border: "1px solid #30363d",
+                        borderRadius: "8px",
+                        background: "#0d1117",
+                        color: "#c9d1d9",
+                        cursor: "pointer",
+                        fontSize: "13px"
+                    });
+
+                    const radio = document.createElement("input");
+                    radio.type = "radio";
+                    radio.name = "arbohub-alteracao";
+                    radio.value = valor;
+                    radio.checked = marcada;
+                    radio.style.accentColor = "#2f81f7";
+
+                    const span = document.createElement("span");
+                    span.textContent = texto;
+
+                    label.append(
+                        radio,
+                        span
+                    );
+
+                    return {
+                        label,
+                        radio
+                    };
+                };
+
+                const opcaoIgual = criarOpcao(
+                    "manteve_igual",
+                    "Não houve alteração",
+                    true
+                );
+
+                const opcaoMudou = criarOpcao(
+                    "mudou",
+                    "Houve alteração",
+                    false
+                );
+
+                grupo.append(
+                    opcaoIgual.label,
+                    opcaoMudou.label
+                );
+
+                const rotuloObservacao =
+                    document.createElement("label");
+
+                rotuloObservacao.textContent = "O que mudou?";
+
+                Object.assign(rotuloObservacao.style, {
+                    display: "block",
+                    marginBottom: "6px",
+                    color: "#f0f6fc",
+                    fontSize: "12px",
+                    fontWeight: "600"
+                });
+
+                const observacao =
+                    document.createElement("textarea");
+
+                observacao.placeholder =
+                    "Descreva resumidamente a alteração observada.";
+
+                Object.assign(observacao.style, {
+                    width: "100%",
+                    minHeight: "82px",
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                    padding: "10px 11px",
+                    borderRadius: "8px",
+                    border: "1px solid #30363d",
+                    outline: "none",
+                    background: "#0d1117",
+                    color: "#f0f6fc",
+                    fontFamily:
+                        '"Segoe UI", Arial, sans-serif',
+                    fontSize: "12px",
+                    lineHeight: "1.45"
+                });
+
+                const aviso = document.createElement("div");
+
+                Object.assign(aviso.style, {
+                    minHeight: "18px",
+                    marginTop: "6px",
+                    color: "#f85149",
+                    fontSize: "11px"
+                });
+
+                const botao = document.createElement("button");
+                botao.type = "button";
+                botao.textContent =
+                    `Sim, confirmar e ${acaoSeguinte}`;
+
+                Object.assign(botao.style, {
+                    width: "100%",
+                    marginTop: "8px",
+                    padding: "11px 14px",
+                    border: "1px solid #388bfd",
+                    borderRadius: "8px",
+                    background: "#1f6feb",
+                    color: "#ffffff",
+                    cursor: "pointer",
+                    fontFamily:
+                        '"Segoe UI", Arial, sans-serif',
+                    fontSize: "13px",
+                    fontWeight: "700"
+                });
+
+                const atualizarObservacao = () => {
+                    const mudou = opcaoMudou.radio.checked;
+
+                    observacao.disabled = !mudou;
+                    observacao.style.opacity = (
+                        mudou ? "1" : "0.52"
+                    );
+
+                    if (!mudou) {
+                        observacao.value = "";
+                        aviso.textContent = "";
+                    }
+                };
+
+                opcaoIgual.radio.addEventListener(
+                    "change",
+                    atualizarObservacao
+                );
+
+                opcaoMudou.radio.addEventListener(
+                    "change",
+                    atualizarObservacao
+                );
+
+                observacao.addEventListener(
+                    "focus",
+                    () => {
+                        observacao.style.borderColor = "#58a6ff";
+                    }
+                );
+
+                observacao.addEventListener(
+                    "blur",
+                    () => {
+                        observacao.style.borderColor = "#30363d";
+                    }
+                );
+
+                botao.addEventListener(
+                    "mouseenter",
+                    () => {
+                        botao.style.background = "#388bfd";
+                    }
+                );
+
+                botao.addEventListener(
+                    "mouseleave",
+                    () => {
+                        botao.style.background = "#1f6feb";
+                    }
+                );
+
+                botao.addEventListener(
+                    "click",
+                    () => {
+                        const mudou = opcaoMudou.radio.checked;
+                        const texto = normalizarTexto(
+                            observacao.value
+                        );
+
+                        if (mudou && !texto) {
+                            aviso.textContent =
+                                "Descreva o que mudou para continuar.";
+                            observacao.focus();
+                            return;
+                        }
+
+                        raiz.remove();
+
+                        resolve({
+                            confirmado: true,
+                            houve_alteracao: mudou,
+                            resultado_comparacao: (
+                                mudou
+                                    ? "mudou"
+                                    : "manteve_igual"
+                            ),
+                            observacao: texto
+                        });
+                    }
+                );
+
+                conteudo.append(
+                    orientacao,
+                    grupo,
+                    rotuloObservacao,
+                    observacao,
+                    aviso,
+                    botao
+                );
+
+                janela.append(
+                    cabecalho,
+                    conteudo
+                );
+
+                raiz.append(janela);
+                document.body.append(raiz);
+
+                atualizarObservacao();
+
+                let arrastando = false;
+                let inicioX = 0;
+                let inicioY = 0;
+                let origemX = 0;
+                let origemY = 0;
+
+                cabecalho.addEventListener(
+                    "mousedown",
+                    evento => {
+                        arrastando = true;
+
+                        const retangulo =
+                            janela.getBoundingClientRect();
+
+                        origemX = retangulo.left;
+                        origemY = retangulo.top;
+                        inicioX = evento.clientX;
+                        inicioY = evento.clientY;
+
+                        janela.style.left = `${origemX}px`;
+                        janela.style.top = `${origemY}px`;
+                        janela.style.transform = "none";
+
+                        evento.preventDefault();
+                    }
+                );
+
+                window.addEventListener(
+                    "mousemove",
+                    evento => {
+                        if (!arrastando) {
+                            return;
+                        }
+
+                        const largura = janela.offsetWidth;
+                        const altura = janela.offsetHeight;
+
+                        const novoX = Math.min(
+                            Math.max(
+                                8,
+                                origemX
+                                + evento.clientX
+                                - inicioX
+                            ),
+                            window.innerWidth - largura - 8
+                        );
+
+                        const novoY = Math.min(
+                            Math.max(
+                                8,
+                                origemY
+                                + evento.clientY
+                                - inicioY
+                            ),
+                            window.innerHeight - altura - 8
+                        );
+
+                        janela.style.left = `${novoX}px`;
+                        janela.style.top = `${novoY}px`;
+                    }
+                );
+
+                window.addEventListener(
+                    "mouseup",
+                    () => {
+                        arrastando = false;
+                    }
+                );
+            })
+            """,
+            {
+                "agravo": agravo,
+                "acaoSeguinte": acao_seguinte
+            }
+        )
+
+        return {
+            "confirmado": bool(
+                resultado["confirmado"]
+            ),
+            "houve_alteracao": bool(
+                resultado["houve_alteracao"]
+            ),
+            "resultado_comparacao": str(
+                resultado["resultado_comparacao"]
+            ),
+            "observacao": str(
+                resultado["observacao"]
+            )
+        }
+
     # ------------------------------------------------------------------
     # Navegação
     # ------------------------------------------------------------------
