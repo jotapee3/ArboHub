@@ -18,6 +18,9 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
 
 # Arquivos baixados e dados sensíveis
 downloads/
@@ -41,15 +44,8 @@ build/
 dist/
 *.spec
 
-# Banco local e arquivos temporários do ArboHub
-data/arbohub.db
-data/*.db-journal
-data/*.db-shm
-data/*.db-wal
-
 # Sessões e autenticação do Playwright
 playwright/.auth/
-data/playwright/
 *.auth.json
 
 # Registros sensíveis do navegador
