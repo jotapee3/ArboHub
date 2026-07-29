@@ -629,6 +629,14 @@ class VerificacaoObitos:
         )
 
     def _agravo_esta_selecionado(self) -> bool:
+        """
+        Confirma o Agravo sem acionar esperas automáticas longas.
+
+        O SINAN pode recriar o input durante o AJAX. Por isso,
+        o valor é lido diretamente do DOM atual, aceitando textos
+        como "Dengue" e "A90 - DENGUE".
+        """
+
         if self._agravo_esperado is None:
             return False
 
@@ -637,20 +645,38 @@ class VerificacaoObitos:
         )
 
         for contexto in self._obter_contextos():
+            controles = contexto.locator(
+                "input:not([type]), "
+                "input[type='text'], "
+                "input[readonly], "
+                "input[disabled]"
+            )
+
             try:
-                campo, _ = self._localizar_campo_agravo(
-                    contexto
-                )
-
-                valor = self._normalizar_texto(
-                    campo.input_value()
-                )
-
-                if alvo in valor:
-                    return True
-
+                quantidade = controles.count()
             except Exception:
                 continue
+
+            for indice in range(quantidade):
+                controle = controles.nth(indice)
+
+                try:
+                    if not controle.is_visible():
+                        continue
+
+                    # evaluate lê a propriedade value diretamente,
+                    # sem esperar até 30 segundos por um subelemento.
+                    valor_atual = controle.evaluate(
+                        "elemento => elemento.value || ''"
+                    )
+
+                    if alvo in self._normalizar_texto(
+                        str(valor_atual)
+                    ):
+                        return True
+
+                except Exception:
+                    continue
 
         return False
 
@@ -1141,23 +1167,60 @@ class VerificacaoObitos:
         texto_opcao: str,
         exato: bool
     ) -> bool:
+        """
+        Verifica opções selecionadas sem usar
+        ``option:checked.inner_text()``.
+
+        Em alguns selects antigos do SINAN não há um elemento
+        ``option:checked`` acessível ao Playwright. O método anterior
+        esperava o timeout padrão de 30 segundos antes de continuar.
+
+        Aqui o texto selecionado é lido diretamente de
+        ``selectedIndex`` no próprio elemento ``select``.
+        """
+
         alvo = self._normalizar_texto(
             texto_opcao
         )
 
         selects = contexto.locator("select")
 
-        for indice in range(selects.count()):
+        try:
+            quantidade = selects.count()
+        except Exception:
+            return False
+
+        for indice in range(quantidade):
             select = selects.nth(indice)
 
             try:
                 if not select.is_visible():
                     continue
 
+                texto_selecionado = select.evaluate(
+                    """
+                    elemento => {
+                        const indice = elemento.selectedIndex;
+
+                        if (
+                            indice < 0
+                            || !elemento.options
+                            || !elemento.options[indice]
+                        ) {
+                            return "";
+                        }
+
+                        return (
+                            elemento.options[indice].textContent
+                            || elemento.options[indice].innerText
+                            || ""
+                        );
+                    }
+                    """
+                )
+
                 selecionado = self._normalizar_texto(
-                    select.locator(
-                        "option:checked"
-                    ).inner_text()
+                    str(texto_selecionado)
                 )
 
                 corresponde = (
