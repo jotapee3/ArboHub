@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from time import monotonic
+from typing import Callable
 
 from playwright.sync_api import (
     Browser,
@@ -61,7 +62,8 @@ class NavegadorSinan:
 
     def aguardar_login_manual(
         self,
-        tempo_limite_segundos: int = 600
+        tempo_limite_segundos: int = 600,
+        cancelado: Callable[[], bool] | None = None
     ) -> bool:
         """
         Aguarda o usuário realizar o login manualmente.
@@ -81,6 +83,14 @@ class NavegadorSinan:
         )
 
         while monotonic() < limite:
+            if (
+                cancelado is not None
+                and cancelado()
+            ):
+                raise RuntimeError(
+                    "A espera pelo login foi cancelada."
+                )
+
             if self.pagina.is_closed():
                 raise RuntimeError(
                     "A janela do navegador foi fechada."
@@ -89,7 +99,7 @@ class NavegadorSinan:
             if self.login_foi_concluido():
                 return True
 
-            self.pagina.wait_for_timeout(1000)
+            self.pagina.wait_for_timeout(500)
 
         raise TimeoutError(
             "O tempo para realizar o login foi encerrado."

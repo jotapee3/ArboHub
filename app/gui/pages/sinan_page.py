@@ -1,10 +1,16 @@
 from datetime import datetime
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from app.gui.components.confirmacao_conferencia_dialog import (
+    solicitar_confirmacao_conferencia_nativa
+)
 from app.gui.themes.colors import Colors
 from app.services.checkpoint_service import CheckpointService
+from app.services.consulta_obitos_service import (
+    ConsultaObitosService
+)
 
 
 class SinanPage(ctk.CTkFrame):
@@ -14,8 +20,8 @@ class SinanPage(ctk.CTkFrame):
     - Consulta: checkpoints de Dengue e Chikungunya.
     - Bases: download e atualização das bases.
 
-    Nesta etapa, os botões de conferência validam a interface
-    e a persistência local. A automação será conectada depois.
+    A subaba Consulta inicia a automação em segundo plano,
+    acompanha os checkpoints e abre a confirmação humana nativa.
     """
 
     def __init__(self, master):
@@ -28,10 +34,16 @@ class SinanPage(ctk.CTkFrame):
         self.pasta_destino = None
         self.progresso_atual = 0
         self.checkpoint_service = CheckpointService()
+        self.consulta_obitos_service = ConsultaObitosService(
+            checkpoint_service=self.checkpoint_service
+        )
 
         self.layout_checkpoints_vertical = None
         self.layout_botoes_bases = None
+        self.layout_acoes_consulta_vertical = None
         self._redimensionamento_agendado = None
+        self._polling_automacao_id = None
+        self._pagina_destruida = False
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -52,6 +64,14 @@ class SinanPage(ctk.CTkFrame):
             100,
             self.ajustar_layout_responsivo
         )
+
+        self.bind(
+            "<Destroy>",
+            self._ao_destruir_pagina,
+            add="+"
+        )
+
+        self._agendar_processamento_eventos()
 
 
     # ------------------------------------------------------------------
@@ -514,13 +534,53 @@ class SinanPage(ctk.CTkFrame):
             pady=(0, 10)
         )
 
-        self.botao_resetar_consulta = ctk.CTkButton(
+        acoes = ctk.CTkFrame(
             painel,
-            text="↻ Resetar checkpoints da consulta",
+            fg_color="transparent"
+        )
+        self.container_acoes_consulta = acoes
+
+        acoes.grid(
+            row=5,
+            column=0,
+            sticky="ew",
+            padx=22,
+            pady=(16, 8)
+        )
+        acoes.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        self.botao_iniciar_verificacao = ctk.CTkButton(
+            acoes,
+            text="▶ Iniciar verificação",
+            command=self.iniciar_verificacao_obitos,
+            height=38,
+            corner_radius=7,
+            fg_color=Colors.PRIMARY,
+            hover_color=Colors.BUTTON_HOVER,
+            text_color=Colors.TEXT_PRIMARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=13,
+                weight="bold"
+            )
+        )
+        self.botao_iniciar_verificacao.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(0, 6)
+        )
+
+        self.botao_resetar_consulta = ctk.CTkButton(
+            acoes,
+            text="↻ Resetar",
             command=self.resetar_checkpoints_consulta,
-            width=220,
-            height=36,
-            corner_radius=6,
+            width=130,
+            height=38,
+            corner_radius=7,
             fg_color="transparent",
             hover_color=Colors.SURFACE_HOVER,
             border_width=1,
@@ -533,11 +593,37 @@ class SinanPage(ctk.CTkFrame):
             )
         )
         self.botao_resetar_consulta.grid(
-            row=5,
+            row=0,
+            column=1,
+            sticky="e",
+            padx=(6, 0)
+        )
+
+        self.label_estado_automacao = ctk.CTkLabel(
+            painel,
+            text=(
+                "Aguardando o início da verificação."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=620
+        )
+        self.label_estado_automacao.grid(
+            row=6,
             column=0,
-            sticky="w",
+            sticky="ew",
             padx=22,
-            pady=(16, 20)
+            pady=(0, 18)
+        )
+
+        acoes.bind(
+            "<Configure>",
+            self.ajustar_layout_acoes_consulta
         )
 
     def criar_titulo_checkpoints_individuais(self):
@@ -741,10 +827,11 @@ class SinanPage(ctk.CTkFrame):
 
         botao = ctk.CTkButton(
             card,
-            text="✓ Marcar como conferido",
+            text="Aguardando automação",
             command=comando,
             height=36,
             corner_radius=6,
+            state="disabled",
             fg_color=Colors.BUTTON,
             hover_color=Colors.BUTTON_HOVER,
             border_width=1,
@@ -801,9 +888,9 @@ class SinanPage(ctk.CTkFrame):
         self.label_fluxo_consulta = ctk.CTkLabel(
             painel,
             text=(
-                "Dengue → conferência humana → pressione 0 "
-                "ou confirme na tela → Chikungunya → "
-                "conferência humana → rotina concluída."
+                "Dengue → conferência na janela do ArboHub → "
+                "Chikungunya → nova conferência → "
+                "rotina concluída."
             ),
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -825,9 +912,9 @@ class SinanPage(ctk.CTkFrame):
         self.label_observacao_consulta = ctk.CTkLabel(
             painel,
             text=(
-                "Nesta etapa, os botões validam os dois "
-                "checkpoints e o banco local. A automação "
-                "será conectada em seguida."
+                "A automação abre o SINAN, aguarda o login "
+                "manual e atualiza os checkpoints automaticamente. "
+                "Nenhum conteúdo das linhas é lido pelo ArboHub."
             ),
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -1207,6 +1294,7 @@ class SinanPage(ctk.CTkFrame):
         )
 
         self.ajustar_layout_checkpoints()
+        self.ajustar_layout_acoes_consulta()
         self.ajustar_layout_botoes_bases()
         self.ajustar_quebra_textos()
 
@@ -1291,6 +1379,85 @@ class SinanPage(ctk.CTkFrame):
         )
 
         self.layout_checkpoints_vertical = usar_vertical
+
+    def ajustar_layout_acoes_consulta(
+        self,
+        event=None
+    ):
+        if not hasattr(
+            self,
+            "container_acoes_consulta"
+        ):
+            return
+
+        largura = (
+            event.width
+            if event is not None
+            else self.container_acoes_consulta.winfo_width()
+        )
+
+        if largura <= 1:
+            return
+
+        usar_vertical = largura < 520
+
+        if (
+            self.layout_acoes_consulta_vertical
+            == usar_vertical
+            and event is not None
+        ):
+            return
+
+        if usar_vertical:
+            self.container_acoes_consulta.grid_columnconfigure(
+                0,
+                weight=1
+            )
+            self.container_acoes_consulta.grid_columnconfigure(
+                1,
+                weight=0
+            )
+
+            self.botao_iniciar_verificacao.grid_configure(
+                row=0,
+                column=0,
+                sticky="ew",
+                padx=0,
+                pady=(0, 5)
+            )
+            self.botao_resetar_consulta.grid_configure(
+                row=1,
+                column=0,
+                sticky="ew",
+                padx=0,
+                pady=(5, 0)
+            )
+        else:
+            self.container_acoes_consulta.grid_columnconfigure(
+                0,
+                weight=1
+            )
+            self.container_acoes_consulta.grid_columnconfigure(
+                1,
+                weight=0
+            )
+
+            self.botao_iniciar_verificacao.grid_configure(
+                row=0,
+                column=0,
+                sticky="ew",
+                padx=(0, 6),
+                pady=0
+            )
+            self.botao_resetar_consulta.grid_configure(
+                row=0,
+                column=1,
+                sticky="e",
+                padx=(6, 0),
+                pady=0
+            )
+
+        self.layout_acoes_consulta_vertical = usar_vertical
 
     def ajustar_layout_botoes_bases(self, event=None):
         if not hasattr(self, "container_botoes_bases"):
@@ -1384,6 +1551,9 @@ class SinanPage(ctk.CTkFrame):
                 self.label_observacao_consulta.configure(
                     wraplength=wrap_consulta
                 )
+                self.label_estado_automacao.configure(
+                    wraplength=wrap_consulta
+                )
 
         if hasattr(self, "tab_bases"):
             largura_bases = self.tab_bases.winfo_width()
@@ -1395,6 +1565,238 @@ class SinanPage(ctk.CTkFrame):
                         220
                     )
                 )
+
+    # ------------------------------------------------------------------
+    # Automação da consulta de óbitos
+    # ------------------------------------------------------------------
+
+    def iniciar_verificacao_obitos(self):
+        if self.consulta_obitos_service.esta_em_execucao():
+            return
+
+        rotina = self.checkpoint_service.obter_rotina()
+
+        if rotina["verificacao_obitos"]:
+            messagebox.showinfo(
+                title="Verificação já concluída",
+                message=(
+                    "A verificação de óbitos de hoje já foi "
+                    "concluída. Use o botão Resetar para iniciar "
+                    "uma nova execução."
+                ),
+                parent=self.winfo_toplevel()
+            )
+            return
+
+        iniciou = self.consulta_obitos_service.iniciar()
+
+        if not iniciou:
+            return
+
+        self.label_estado_automacao.configure(
+            text="Iniciando a automação do SINAN...",
+            text_color=Colors.PRIMARY
+        )
+
+        self.atualizar_painel_rotina()
+
+    def _agendar_processamento_eventos(self):
+        if self._pagina_destruida:
+            return
+
+        self._polling_automacao_id = self.after(
+            100,
+            self._processar_eventos_automacao
+        )
+
+    def _processar_eventos_automacao(self):
+        self._polling_automacao_id = None
+
+        if self._pagina_destruida:
+            return
+
+        for evento in (
+            self.consulta_obitos_service.obter_eventos()
+        ):
+            self._tratar_evento_automacao(
+                evento
+            )
+
+        self._agendar_processamento_eventos()
+
+    def _tratar_evento_automacao(
+        self,
+        evento: dict
+    ):
+        tipo = evento.get("tipo")
+
+        if tipo == ConsultaObitosService.EVENTO_STATUS:
+            self.label_estado_automacao.configure(
+                text=evento.get(
+                    "mensagem",
+                    "Automação em andamento..."
+                ),
+                text_color=Colors.PRIMARY
+            )
+            return
+
+        if tipo == ConsultaObitosService.EVENTO_ATUALIZAR:
+            self.atualizar_painel_rotina()
+            return
+
+        if tipo == ConsultaObitosService.EVENTO_CONFIRMAR:
+            self._abrir_confirmacao_automacao(
+                agravo=evento["agravo"],
+                acao_seguinte=evento["acao_seguinte"]
+            )
+            return
+
+        if tipo == ConsultaObitosService.EVENTO_CONCLUIDO:
+            self.atualizar_painel_rotina()
+            self.label_estado_automacao.configure(
+                text=evento.get(
+                    "mensagem",
+                    "Verificação concluída."
+                ),
+                text_color=Colors.SUCCESS
+            )
+            self._atualizar_controles_automacao()
+            return
+
+        if tipo == ConsultaObitosService.EVENTO_CANCELADO:
+            self.atualizar_painel_rotina()
+            self.label_estado_automacao.configure(
+                text=evento.get(
+                    "mensagem",
+                    "Verificação cancelada."
+                ),
+                text_color=Colors.TEXT_MUTED
+            )
+            self._atualizar_controles_automacao()
+            return
+
+        if tipo == ConsultaObitosService.EVENTO_ERRO:
+            self.atualizar_painel_rotina()
+            self.label_estado_automacao.configure(
+                text="A verificação não pôde ser concluída.",
+                text_color=Colors.TEXT_SECONDARY
+            )
+            self._atualizar_controles_automacao()
+
+            messagebox.showerror(
+                title="Erro na verificação do SINAN",
+                message=evento.get(
+                    "mensagem",
+                    "Ocorreu um erro inesperado."
+                ),
+                parent=self.winfo_toplevel()
+            )
+
+    def _abrir_confirmacao_automacao(
+        self,
+        agravo: str,
+        acao_seguinte: str
+    ):
+        self.label_estado_automacao.configure(
+            text=(
+                f"Confira os resultados de {agravo} no SINAN "
+                "e responda à janela do ArboHub."
+            ),
+            text_color=Colors.PRIMARY
+        )
+
+        try:
+            resultado = (
+                solicitar_confirmacao_conferencia_nativa(
+                    agravo=agravo,
+                    acao_seguinte=acao_seguinte,
+                    master=self.winfo_toplevel(),
+                    manter_no_topo=True
+                )
+            )
+
+            self.consulta_obitos_service.responder_confirmacao(
+                resultado
+            )
+
+        except Exception as erro:
+            try:
+                self.consulta_obitos_service.cancelar()
+            except Exception:
+                pass
+
+            if not self._pagina_destruida:
+                messagebox.showerror(
+                    title="Erro na confirmação",
+                    message=str(erro),
+                    parent=self.winfo_toplevel()
+                )
+
+    def _atualizar_controles_automacao(
+        self,
+        rotina: dict | None = None
+    ):
+        if not hasattr(
+            self,
+            "botao_iniciar_verificacao"
+        ):
+            return
+
+        rotina = (
+            rotina
+            or self.checkpoint_service.obter_rotina()
+        )
+
+        executando = (
+            self.consulta_obitos_service.esta_em_execucao()
+        )
+
+        if executando:
+            self.botao_iniciar_verificacao.configure(
+                text="● Verificação em andamento",
+                state="disabled"
+            )
+            self.botao_resetar_consulta.configure(
+                state="disabled"
+            )
+            return
+
+        if rotina["verificacao_obitos"]:
+            self.botao_iniciar_verificacao.configure(
+                text="✓ Verificação concluída",
+                state="disabled"
+            )
+            self.botao_resetar_consulta.configure(
+                state="normal"
+            )
+            return
+
+        self.botao_iniciar_verificacao.configure(
+            text="▶ Iniciar verificação",
+            state="normal"
+        )
+        self.botao_resetar_consulta.configure(
+            state="normal"
+        )
+
+    def _ao_destruir_pagina(self, event):
+        if event.widget is not self:
+            return
+
+        self._pagina_destruida = True
+
+        if self._polling_automacao_id is not None:
+            try:
+                self.after_cancel(
+                    self._polling_automacao_id
+                )
+            except Exception:
+                pass
+
+            self._polling_automacao_id = None
+
+        if self.consulta_obitos_service.esta_em_execucao():
+            self.consulta_obitos_service.cancelar()
 
     # ------------------------------------------------------------------
     # Ações dos checkpoints
@@ -1419,6 +1821,9 @@ class SinanPage(ctk.CTkFrame):
         )
 
     def resetar_checkpoints_consulta(self):
+        if self.consulta_obitos_service.esta_em_execucao():
+            return
+
         self.checkpoint_service.resetar_verificacao_obitos()
         self.atualizar_painel_rotina()
         self.registrar_operacao(
@@ -1540,6 +1945,10 @@ class SinanPage(ctk.CTkFrame):
                 text_color=Colors.TEXT_MUTED
             )
 
+        self._atualizar_controles_automacao(
+            rotina
+        )
+
     def atualizar_card_checkpoint(
         self,
         componentes: dict,
@@ -1592,16 +2001,26 @@ class SinanPage(ctk.CTkFrame):
             text=detalhe
         )
 
-        if status == CheckpointService.STATUS_CONCLUIDO:
-            componentes["botao"].configure(
-                text="✓ Conferido",
-                state="disabled"
-            )
-        else:
-            componentes["botao"].configure(
-                text="✓ Marcar como conferido",
-                state="normal"
-            )
+        texto_botao = {
+            CheckpointService.STATUS_AGUARDANDO:
+                "Aguardando automação",
+            CheckpointService.STATUS_EXECUTANDO:
+                "● Consulta em andamento",
+            CheckpointService.STATUS_AGUARDANDO_CONFERENCIA:
+                "◉ Aguardando conferência",
+            CheckpointService.STATUS_CONCLUIDO:
+                "✓ Conferido",
+            CheckpointService.STATUS_ERRO:
+                "✕ Erro na consulta"
+        }.get(
+            status,
+            "Aguardando automação"
+        )
+
+        componentes["botao"].configure(
+            text=texto_botao,
+            state="disabled"
+        )
 
     def texto_horario_checkpoint(
         self,
