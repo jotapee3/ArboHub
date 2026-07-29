@@ -19,7 +19,9 @@ class VerificacaoObitos:
     - seleciona Evolução;
     - seleciona 2 - Óbito por Agravo.
 
-    Ainda não clica em Adicionar nem em Pesquisar.
+    Também pode adicionar o critério à lista.
+
+    Ainda não clica em Pesquisar.
     """
 
     # Limites máximos. Em conexão rápida, o programa avança
@@ -276,6 +278,52 @@ class VerificacaoObitos:
             "O SINAN não manteve todos os filtros "
             "corretos ao mesmo tempo."
         )
+
+
+    def adicionar_criterio_obito(self) -> dict[str, int | str]:
+        """
+        Clica em Adicionar e confirma que o critério passou
+        a existir na lista de critérios da consulta.
+
+        Não clica em Pesquisar.
+        """
+
+        if not self._estado_final_esta_correto():
+            raise RuntimeError(
+                "Os filtros precisam estar corretamente "
+                "preenchidos antes de clicar em Adicionar."
+            )
+
+        ocorrencias_antes = (
+            self._contar_criterios_obito_registrados()
+        )
+
+        botao = self._aguardar_botao_adicionar_habilitado(
+            tempo_limite_segundos=5
+        )
+
+        self._clicar_elemento_resiliente(
+            elemento=botao,
+            descricao="Adicionar"
+        )
+
+        # O botão pode disparar o popup AJAX do SINAN.
+        self._sincronizar_processamento_relevante()
+
+        ocorrencias_depois = (
+            self._aguardar_criterio_obito_adicionado(
+                ocorrencias_antes=ocorrencias_antes,
+                tempo_limite_segundos=12
+            )
+        )
+
+        return {
+            "campo": "Evolução",
+            "operador": "Igual",
+            "criterio": "2 - Óbito por Agravo",
+            "ocorrencias_antes": ocorrencias_antes,
+            "ocorrencias_depois": ocorrencias_depois
+        }
 
     # ------------------------------------------------------------------
     # Navegação
@@ -1325,6 +1373,266 @@ class VerificacaoObitos:
             # O DOM pode ter sido reconstruído. A validação externa
             # localizará o campo atual.
             pass
+
+
+    # ------------------------------------------------------------------
+    # Adição e confirmação do critério
+    # ------------------------------------------------------------------
+
+    def _aguardar_botao_adicionar_habilitado(
+        self,
+        tempo_limite_segundos: float
+    ) -> Locator:
+        """
+        Localiza o botão Adicionar na página ou nos frames
+        e aguarda somente até ele ficar habilitado.
+        """
+
+        limite = monotonic() + tempo_limite_segundos
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+
+            if self._processamento_sinan_visivel():
+                self._aguardar_fim_processamento()
+
+            for contexto in self._obter_contextos():
+                localizadores = [
+                    contexto.get_by_role(
+                        "button",
+                        name="Adicionar",
+                        exact=True
+                    ),
+                    contexto.locator(
+                        "input[type='button'][value='Adicionar'], "
+                        "input[type='submit'][value='Adicionar']"
+                    ),
+                    contexto.locator("button").filter(
+                        has_text="Adicionar"
+                    )
+                ]
+
+                for localizador in localizadores:
+                    try:
+                        quantidade = localizador.count()
+                    except Exception:
+                        continue
+
+                    for indice in range(quantidade):
+                        botao = localizador.nth(indice)
+
+                        try:
+                            if (
+                                botao.is_visible()
+                                and botao.is_enabled()
+                            ):
+                                return botao
+
+                        except Exception:
+                            continue
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_VERIFICACAO_MS
+            )
+
+        raise RuntimeError(
+            "O botão 'Adicionar' não ficou habilitado "
+            f"após {tempo_limite_segundos} segundos."
+        )
+
+    def _aguardar_criterio_obito_adicionado(
+        self,
+        ocorrencias_antes: int,
+        tempo_limite_segundos: float
+    ) -> int:
+        """
+        Aguarda a criação de uma nova ocorrência visível do
+        critério fora dos campos de edição.
+
+        A confirmação não depende de nomes de classes específicos
+        do SINAN. Ela procura uma linha ou bloco visível contendo
+        simultaneamente Evolução e Óbito por Agravo, fora de selects.
+        """
+
+        limite = monotonic() + tempo_limite_segundos
+        maior_contagem = ocorrencias_antes
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+
+            if self._processamento_sinan_visivel():
+                self._aguardar_fim_processamento()
+
+            contagem_atual = (
+                self._contar_criterios_obito_registrados()
+            )
+
+            maior_contagem = max(
+                maior_contagem,
+                contagem_atual
+            )
+
+            if contagem_atual > ocorrencias_antes:
+                return contagem_atual
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_VERIFICACAO_MS
+            )
+
+        raise RuntimeError(
+            "O botão Adicionar foi acionado, mas não foi "
+            "possível confirmar o critério na lista. "
+            f"Ocorrências antes: {ocorrencias_antes}; "
+            f"maior contagem observada: {maior_contagem}."
+        )
+
+    def _contar_criterios_obito_registrados(self) -> int:
+        """
+        Conta blocos visíveis que representam um critério já
+        adicionado, ignorando os valores que ainda estão nos
+        campos select do editor.
+
+        A leitura ocorre em uma única avaliação JavaScript por
+        contexto, evitando timeouts e buscas lentas.
+        """
+
+        script = """
+            raiz => {
+                const normalizar = texto => (
+                    String(texto || "")
+                        .normalize("NFD")
+                        .replace(/[\\u0300-\\u036f]/g, "")
+                        .toLowerCase()
+                        .replace(/\\s+/g, " ")
+                        .trim()
+                );
+
+                const visivel = elemento => {
+                    if (!elemento) {
+                        return false;
+                    }
+
+                    const estilo = window.getComputedStyle(elemento);
+                    const retangulo = elemento.getBoundingClientRect();
+
+                    return (
+                        estilo.display !== "none"
+                        && estilo.visibility !== "hidden"
+                        && retangulo.width > 0
+                        && retangulo.height > 0
+                    );
+                };
+
+                const encontrados = new Set();
+
+                const registrar = elementoInicial => {
+                    let elemento = elementoInicial;
+
+                    for (
+                        let nivel = 0;
+                        elemento
+                            && elemento !== raiz
+                            && nivel < 8;
+                        nivel += 1
+                    ) {
+                        if (!visivel(elemento)) {
+                            elemento = elemento.parentElement;
+                            continue;
+                        }
+
+                        const texto = normalizar(
+                            elemento.innerText
+                            || elemento.textContent
+                            || ""
+                        );
+
+                        const contemSelect = Boolean(
+                            elemento.querySelector("select")
+                        );
+
+                        if (
+                            !contemSelect
+                            && texto.includes("evolucao")
+                            && texto.includes("obito por agravo")
+                        ) {
+                            encontrados.add(elemento);
+                            break;
+                        }
+
+                        elemento = elemento.parentElement;
+                    }
+                };
+
+                const caminhante = document.createTreeWalker(
+                    raiz,
+                    NodeFilter.SHOW_TEXT
+                );
+
+                let noTexto = caminhante.nextNode();
+
+                while (noTexto) {
+                    const pai = noTexto.parentElement;
+
+                    if (
+                        pai
+                        && !pai.closest(
+                            "select, option, script, style"
+                        )
+                    ) {
+                        const texto = normalizar(
+                            noTexto.nodeValue
+                        );
+
+                        if (texto.includes("obito por agravo")) {
+                            registrar(pai);
+                        }
+                    }
+
+                    noTexto = caminhante.nextNode();
+                }
+
+                const controles = raiz.querySelectorAll(
+                    "input, textarea"
+                );
+
+                for (const controle of controles) {
+                    if (
+                        !visivel(controle)
+                        || controle.closest("select")
+                    ) {
+                        continue;
+                    }
+
+                    const valor = normalizar(
+                        controle.value
+                    );
+
+                    if (valor.includes("obito por agravo")) {
+                        registrar(controle);
+                    }
+                }
+
+                return encontrados.size;
+            }
+        """
+
+        total = 0
+
+        for contexto in self._obter_contextos():
+            try:
+                corpo = contexto.locator("body")
+
+                if corpo.count() == 0:
+                    continue
+
+                total += int(
+                    corpo.evaluate(script)
+                )
+
+            except Exception:
+                continue
+
+        return total
 
     # ------------------------------------------------------------------
     # Sincronização específica com "Processando"
