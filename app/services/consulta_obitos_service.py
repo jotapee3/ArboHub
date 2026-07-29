@@ -21,9 +21,18 @@ class ConsultaObitosService:
     EVENTO_STATUS = "status"
     EVENTO_ATUALIZAR = "atualizar"
     EVENTO_CONFIRMAR = "confirmar"
+    EVENTO_ETAPA = "etapa"
     EVENTO_CONCLUIDO = "concluido"
     EVENTO_ERRO = "erro"
     EVENTO_CANCELADO = "cancelado"
+
+    ETAPA_ABRIR_SINAN = "abrir_sinan"
+    ETAPA_LOGIN = "login"
+    ETAPA_DENGUE_CONSULTA = "dengue_consulta"
+    ETAPA_DENGUE_CONFERENCIA = "dengue_conferencia"
+    ETAPA_CHIKUNGUNYA_CONSULTA = "chikungunya_consulta"
+    ETAPA_CHIKUNGUNYA_CONFERENCIA = "chikungunya_conferencia"
+    ETAPA_FINALIZACAO = "finalizacao"
 
     def __init__(
         self,
@@ -132,6 +141,7 @@ class ConsultaObitosService:
     def _executar_fluxo(self):
         navegador = NavegadorSinan()
         agravo_atual: str | None = None
+        etapa_atual = self.ETAPA_ABRIR_SINAN
 
         evento_final = self.EVENTO_CONCLUIDO
         mensagem_final = (
@@ -140,6 +150,10 @@ class ConsultaObitosService:
         )
 
         try:
+            self._emitir_etapa(
+                etapa_atual,
+                "Abrindo o navegador do SINAN."
+            )
             self._emitir_status(
                 "Abrindo o navegador do SINAN..."
             )
@@ -148,6 +162,11 @@ class ConsultaObitosService:
 
             self._verificar_cancelamento()
 
+            etapa_atual = self.ETAPA_LOGIN
+            self._emitir_etapa(
+                etapa_atual,
+                "Aguardando o login manual."
+            )
             self._emitir_status(
                 "Aguardando o login manual no SINAN."
             )
@@ -173,6 +192,12 @@ class ConsultaObitosService:
             # Dengue
             # --------------------------------------------------
 
+            etapa_atual = self.ETAPA_DENGUE_CONSULTA
+            self._emitir_etapa(
+                etapa_atual,
+                "Preenchendo filtros e pesquisando Dengue."
+            )
+
             agravo_atual = CheckpointService.AGRAVO_DENGUE
 
             self.checkpoint_service.marcar_obito_iniciado(
@@ -188,6 +213,12 @@ class ConsultaObitosService:
             )
 
             self._verificar_cancelamento()
+
+            etapa_atual = self.ETAPA_DENGUE_CONFERENCIA
+            self._emitir_etapa(
+                etapa_atual,
+                "Aguardando a conferência humana de Dengue."
+            )
 
             self.checkpoint_service.marcar_obito_aguardando_conferencia(
                 agravo_atual
@@ -221,6 +252,15 @@ class ConsultaObitosService:
             # Chikungunya
             # --------------------------------------------------
 
+            etapa_atual = self.ETAPA_CHIKUNGUNYA_CONSULTA
+            self._emitir_etapa(
+                etapa_atual,
+                (
+                    "Reutilizando o critério e pesquisando "
+                    "Chikungunya."
+                )
+            )
+
             agravo_atual = (
                 CheckpointService.AGRAVO_CHIKUNGUNYA
             )
@@ -238,6 +278,15 @@ class ConsultaObitosService:
             )
 
             self._verificar_cancelamento()
+
+            etapa_atual = self.ETAPA_CHIKUNGUNYA_CONFERENCIA
+            self._emitir_etapa(
+                etapa_atual,
+                (
+                    "Aguardando a conferência humana "
+                    "de Chikungunya."
+                )
+            )
 
             self.checkpoint_service.marcar_obito_aguardando_conferencia(
                 agravo_atual
@@ -269,6 +318,12 @@ class ConsultaObitosService:
                 )
             )
             self._emitir_atualizacao()
+
+            etapa_atual = self.ETAPA_FINALIZACAO
+            self._emitir_etapa(
+                etapa_atual,
+                "Finalizando a rotina e fechando o navegador."
+            )
 
         except _FluxoCancelado:
             evento_final = self.EVENTO_CANCELADO
@@ -302,7 +357,8 @@ class ConsultaObitosService:
 
             self._emitir(
                 evento_final,
-                mensagem=mensagem_final
+                mensagem=mensagem_final,
+                etapa=etapa_atual
             )
 
     def _aguardar_confirmacao(
@@ -355,6 +411,25 @@ class ConsultaObitosService:
                 "tipo": tipo,
                 **dados
             }
+        )
+
+    def _emitir_etapa(
+        self,
+        etapa: str,
+        mensagem: str
+    ):
+        """
+        Informa à interface a etapa exata do fluxo.
+
+        O evento contém apenas identificadores técnicos e uma
+        mensagem operacional. Nenhum dado das linhas do SINAN é
+        transportado.
+        """
+
+        self._emitir(
+            self.EVENTO_ETAPA,
+            etapa=etapa,
+            mensagem=mensagem
         )
 
     def _emitir_status(

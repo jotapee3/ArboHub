@@ -753,6 +753,95 @@ class CheckpointService:
             )
             conexao.commit()
 
+    def listar_relatorios_obitos(
+        self,
+        agravo: str | None = None,
+        resultado_comparacao: str | None = None,
+        limite: int = 100
+    ) -> list[dict]:
+        """
+        Retorna o histórico de conferências de óbitos.
+
+        A consulta utiliza somente os dados registrados pelo
+        ArboHub durante a conferência humana. Ela não acessa
+        nem retorna linhas de pacientes do SINAN.
+        """
+
+        if limite < 1:
+            raise ValueError(
+                "O limite precisa ser maior que zero."
+            )
+
+        limite = min(limite, 500)
+
+        filtros = [
+            "status = ?"
+        ]
+        parametros: list[str | int] = [
+            self.STATUS_CONCLUIDO
+        ]
+
+        if agravo is not None:
+            agravo = self._validar_agravo(agravo)
+            filtros.append("agravo = ?")
+            parametros.append(agravo)
+
+        resultados_validos = {
+            "manteve_igual",
+            "mudou"
+        }
+
+        if resultado_comparacao is not None:
+            resultado_normalizado = (
+                resultado_comparacao.strip().casefold()
+            )
+
+            if resultado_normalizado not in resultados_validos:
+                raise ValueError(
+                    "Resultado inválido. Use 'manteve_igual' "
+                    "ou 'mudou'."
+                )
+
+            filtros.append(
+                "resultado_comparacao = ?"
+            )
+            parametros.append(
+                resultado_normalizado
+            )
+
+        parametros.append(limite)
+
+        comando = f"""
+            SELECT
+                data_referencia,
+                agravo,
+                status,
+                iniciado_em,
+                consulta_concluida_em,
+                confirmado_em,
+                resultado_comparacao,
+                observacao,
+                responsavel
+            FROM verificacao_obitos_diaria
+            WHERE {' AND '.join(filtros)}
+            ORDER BY
+                data_referencia DESC,
+                confirmado_em DESC,
+                agravo ASC
+            LIMIT ?
+        """
+
+        with self.conectar() as conexao:
+            resultados = conexao.execute(
+                comando,
+                parametros
+            ).fetchall()
+
+        return [
+            dict(resultado)
+            for resultado in resultados
+        ]
+
     def _validar_agravo(
         self,
         agravo: str
