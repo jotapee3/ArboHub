@@ -19,9 +19,8 @@ class VerificacaoObitos:
     - seleciona Evolução;
     - seleciona 2 - Óbito por Agravo.
 
-    Também pode adicionar o critério à lista.
-
-    Ainda não clica em Pesquisar.
+    Também pode adicionar o critério à lista e executar
+    a pesquisa sem ler nem registrar dados pessoais das linhas.
     """
 
     # Limites máximos. Em conexão rápida, o programa avança
@@ -29,6 +28,13 @@ class VerificacaoObitos:
     TEMPO_MENU_SEGUNDOS = 120
     TEMPO_FORMULARIO_SEGUNDOS = 120
     TEMPO_PROCESSAMENTO_SEGUNDOS = 90
+    TEMPO_PESQUISA_SEGUNDOS = 180
+    JANELA_DETECCAO_PESQUISA_MS = 1200
+    ESTABILIDADE_RESULTADO_PESQUISA_MS = 400
+    INTERVALO_PESQUISA_MS = 60
+    JANELA_INICIO_AJAX_MS = 450
+    ESTABILIDADE_APOS_AJAX_MS = 160
+    TENTATIVAS_ESTABILIZAR_EVOLUCAO = 4
 
     # Confirmações curtas: eliminam as antigas pausas de 15/30 s.
     TEMPO_CONFIRMACAO_RAPIDA_SEGUNDOS = 3
@@ -49,6 +55,26 @@ class VerificacaoObitos:
         self._agravo_esperado: str | None = None
         self._localizacao_esperada = (
             "Notificação ou Residência"
+        )
+
+        # Rastreia requisições assíncronas reais do SINAN.
+        # A internet lenta aumenta a duração da requisição, mas
+        # não cria esperas artificiais quando a conexão está boa.
+        self._requisicoes_ajax_pendentes: set[int] = set()
+        self._total_requisicoes_ajax = 0
+        self._ultima_atividade_ajax = monotonic()
+
+        self.pagina.on(
+            "request",
+            self._ao_iniciar_requisicao
+        )
+        self.pagina.on(
+            "requestfinished",
+            self._ao_finalizar_requisicao
+        )
+        self.pagina.on(
+            "requestfailed",
+            self._ao_finalizar_requisicao
         )
 
     # ------------------------------------------------------------------
@@ -145,6 +171,10 @@ class VerificacaoObitos:
 
         Agravo: Dengue ou Chikungunya
         Localização: Notificação ou Residência
+
+        Cada seleção aguarda a requisição AJAX real terminar.
+        Isso evita começar o campo seguinte enquanto uma resposta
+        lenta ainda está reconstruindo o formulário.
         """
 
         agravos_permitidos = {
@@ -168,40 +198,45 @@ class VerificacaoObitos:
 
         self._garantir_periodo_e_datas()
 
-        # 1. Seleciona Agravo.
         if not self._agravo_esta_selecionado():
             contexto = self._localizar_contexto_formulario()
+            marcador_ajax = self._marcar_estado_ajax()
 
             self._selecionar_agravo_combo(
                 contexto=contexto,
                 nome_agravo=self._agravo_esperado
             )
 
-        # Aguarda somente o popup real, caso apareça.
-        self._sincronizar_processamento_relevante()
+            self._aguardar_ajax_apos_acao(
+                marcador_ajax=marcador_ajax,
+                descricao=f"Agravo {self._agravo_esperado}"
+            )
 
-        # Confirma o Agravo em até 3 s, sem espera fixa.
         self._confirmar_rapido(
             condicao=self._agravo_esta_selecionado,
             descricao=f"Agravo {self._agravo_esperado}"
         )
 
-        # 2. Seleciona Notificação ou Residência.
-        contexto = self._localizar_contexto_formulario()
-
         if not self._localizacao_esta_selecionada():
+            contexto = self._localizar_contexto_formulario()
+            marcador_ajax = self._marcar_estado_ajax()
+
             self._selecionar_notificacao_ou_residencia(
                 contexto=contexto
             )
 
-        self._sincronizar_processamento_relevante()
+            self._aguardar_ajax_apos_acao(
+                marcador_ajax=marcador_ajax,
+                descricao="Notificação ou Residência"
+            )
 
         self._confirmar_rapido(
             condicao=self._localizacao_esta_selecionada,
             descricao="Notificação ou Residência"
         )
 
-        # Só restaura as datas se o AJAX realmente as apagou.
+        # Uma resposta AJAX pode reconstruir as datas. Só restaura
+        # se algum valor tiver sido realmente alterado.
         if not self._periodo_e_datas_estao_corretos():
             self._garantir_periodo_e_datas()
 
@@ -216,52 +251,71 @@ class VerificacaoObitos:
 
         Campo: Evolução
         Critério de Seleção: 2 - Óbito por Agravo
+
+        Se uma resposta AJAX lenta reconstruir o formulário e voltar
+        Campo para "Selecione", Evolução é aplicada novamente somente
+        depois que a requisição anterior terminar.
         """
 
-        self._garantir_filtros_basicos_rapido()
+        texto_criterio = "2 - Óbito por Agravo"
 
-        # O SINAN pode reconstruir o formulário após Evolução.
-        # São permitidas duas tentativas curtas, não esperas longas.
-        for _ in range(2):
-            # 1. Campo = Evolução.
+        for _ in range(
+            self.TENTATIVAS_ESTABILIZAR_EVOLUCAO
+        ):
+            self._garantir_filtros_basicos_rapido()
+
             if not self._evolucao_esta_selecionada():
                 contexto = self._localizar_contexto_formulario()
+                marcador_ajax = self._marcar_estado_ajax()
 
                 self._selecionar_campo_evolucao(
                     contexto=contexto
                 )
 
-            self._sincronizar_processamento_relevante()
+                self._aguardar_ajax_apos_acao(
+                    marcador_ajax=marcador_ajax,
+                    descricao="Campo Evolução"
+                )
 
-            self._confirmar_rapido(
-                condicao=self._evolucao_esta_selecionada,
-                descricao="Campo Evolução"
-            )
-
-            # Restaura somente o que o AJAX tiver apagado.
-            self._garantir_filtros_basicos_rapido()
-
-            # Restaurar filtros pode reconstruir a área de critérios.
+            # A resposta do servidor já terminou. Se ela apagou
+            # Evolução, repete sem aguardar os 12 segundos do critério.
             if not self._evolucao_esta_selecionada():
                 continue
 
-            # 2. Aguarda a opção do critério realmente existir.
-            self._aguardar_opcao_em_select(
-                texto_opcao="2 - Óbito por Agravo",
-                exato=True,
-                tempo_limite_segundos=(
-                    self.TEMPO_CARREGAR_CRITERIO_SEGUNDOS
+            # Aguarda a opção surgir, mas abandona imediatamente
+            # se o SINAN voltar Campo para "Selecione".
+            criterio_disponivel = (
+                self._aguardar_criterio_com_evolucao_estavel(
+                    texto_criterio=texto_criterio,
+                    tempo_limite_segundos=(
+                        self.TEMPO_CARREGAR_CRITERIO_SEGUNDOS
+                    )
                 )
             )
 
+            if not criterio_disponivel:
+                continue
+
+            # Uma resposta anterior pode ter alterado filtros básicos.
+            if not self._filtros_basicos_estao_corretos_rapido():
+                self._garantir_filtros_basicos_rapido()
+                continue
+
             if not self._criterio_obito_esta_selecionado():
                 contexto = self._localizar_contexto_formulario()
+                marcador_ajax = self._marcar_estado_ajax()
 
                 self._selecionar_criterio_obito_por_agravo(
                     contexto=contexto
                 )
 
-            self._sincronizar_processamento_relevante()
+                self._aguardar_ajax_apos_acao(
+                    marcador_ajax=marcador_ajax,
+                    descricao=texto_criterio
+                )
+
+            if not self._evolucao_esta_selecionada():
+                continue
 
             self._confirmar_rapido(
                 condicao=self._criterio_obito_esta_selecionado,
@@ -271,12 +325,12 @@ class VerificacaoObitos:
             if self._estado_final_esta_correto():
                 return {
                     "campo": "Evolução",
-                    "criterio": "2 - Óbito por Agravo"
+                    "criterio": texto_criterio
                 }
 
         raise RuntimeError(
-            "O SINAN não manteve todos os filtros "
-            "corretos ao mesmo tempo."
+            "O SINAN reconstruiu o campo 'Evolução' "
+            "repetidamente e não manteve o critério disponível."
         )
 
 
@@ -323,6 +377,63 @@ class VerificacaoObitos:
             "criterio": "2 - Óbito por Agravo",
             "ocorrencias_antes": ocorrencias_antes,
             "ocorrencias_depois": ocorrencias_depois
+        }
+
+
+    def pesquisar_obitos(self) -> dict[str, str | bool]:
+        """
+        Clica em Pesquisar e confirma que a consulta terminou.
+
+        Antes do clique, instala um MutationObserver temporário.
+        Assim, o código reconhece diretamente a atualização AJAX
+        do SINAN, mesmo quando o popup Processando aparece rápido
+        demais para ser capturado.
+
+        Nenhum conteúdo das linhas de resultado é lido,
+        impresso ou salvo.
+        """
+
+        if self._contar_criterios_obito_registrados() < 1:
+            raise RuntimeError(
+                "Adicione o critério de óbito antes "
+                "de executar a pesquisa."
+            )
+
+        estado_antes = (
+            self._capturar_estado_estrutural_resultado()
+        )
+        url_antes = self.pagina.url
+
+        monitores_iniciais = (
+            self._iniciar_monitoramento_pesquisa()
+        )
+
+        botao = self._aguardar_botao_pesquisar_habilitado(
+            tempo_limite_segundos=8
+        )
+
+        try:
+            self._clicar_elemento_resiliente(
+                elemento=botao,
+                descricao="Pesquisar"
+            )
+
+            confirmacao = self._aguardar_conclusao_pesquisa(
+                estado_antes=estado_antes,
+                url_antes=url_antes,
+                monitores_iniciais=monitores_iniciais,
+                tempo_limite_segundos=(
+                    self.TEMPO_PESQUISA_SEGUNDOS
+                )
+            )
+
+        finally:
+            self._encerrar_monitoramento_pesquisa()
+
+        return {
+            "pesquisa_concluida": True,
+            "confirmacao": confirmacao,
+            "dados_lidos": False
         }
 
     # ------------------------------------------------------------------
@@ -1633,6 +1744,694 @@ class VerificacaoObitos:
                 continue
 
         return total
+
+
+    # ------------------------------------------------------------------
+    # Pesquisa e confirmação segura
+    # ------------------------------------------------------------------
+
+    def _aguardar_botao_pesquisar_habilitado(
+        self,
+        tempo_limite_segundos: float
+    ) -> Locator:
+        """
+        Localiza o botão Pesquisar dentro do formulário.
+        """
+
+        limite = monotonic() + tempo_limite_segundos
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+
+            if self._processamento_sinan_visivel():
+                self._aguardar_fim_processamento()
+
+            contexto = self._localizar_contexto_formulario()
+
+            localizadores = [
+                contexto.get_by_role(
+                    "button",
+                    name="Pesquisar",
+                    exact=True
+                ),
+                contexto.locator(
+                    "input[type='button'][value='Pesquisar'], "
+                    "input[type='submit'][value='Pesquisar']"
+                ),
+                contexto.locator("button").filter(
+                    has_text="Pesquisar"
+                )
+            ]
+
+            for localizador in localizadores:
+                try:
+                    quantidade = localizador.count()
+                except Exception:
+                    continue
+
+                for indice in range(quantidade):
+                    botao = localizador.nth(indice)
+
+                    try:
+                        if (
+                            botao.is_visible()
+                            and botao.is_enabled()
+                        ):
+                            return botao
+
+                    except Exception:
+                        continue
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_VERIFICACAO_MS
+            )
+
+        raise RuntimeError(
+            "O botão 'Pesquisar' não ficou habilitado "
+            f"após {tempo_limite_segundos} segundos."
+        )
+
+    def _iniciar_monitoramento_pesquisa(self) -> int:
+        """
+        Instala um observador temporário de alterações no DOM.
+
+        O observador registra somente quantidade e horário de
+        mutações estruturais. Ele não lê nem armazena textos,
+        células ou dados de pessoas.
+        """
+
+        script = """
+            () => {
+                try {
+                    if (window.__arbohubPesquisaObserver) {
+                        window.__arbohubPesquisaObserver.disconnect();
+                    }
+
+                    const estado = {
+                        mutacoes: 0,
+                        ultimaMutacao: performance.now()
+                    };
+
+                    const observador = new MutationObserver(
+                        lista => {
+                            let quantidade = 0;
+
+                            for (const mutacao of lista) {
+                                if (mutacao.type === "childList") {
+                                    quantidade += (
+                                        mutacao.addedNodes.length
+                                        + mutacao.removedNodes.length
+                                    );
+                                } else if (
+                                    mutacao.type === "characterData"
+                                ) {
+                                    quantidade += 1;
+                                }
+                            }
+
+                            if (quantidade > 0) {
+                                estado.mutacoes += quantidade;
+                                estado.ultimaMutacao = performance.now();
+                            }
+                        }
+                    );
+
+                    observador.observe(
+                        document.documentElement || document.body,
+                        {
+                            childList: true,
+                            subtree: true,
+                            characterData: true
+                        }
+                    );
+
+                    window.__arbohubPesquisaEstado = estado;
+                    window.__arbohubPesquisaObserver = observador;
+
+                    return true;
+
+                } catch (erro) {
+                    return false;
+                }
+            }
+        """
+
+        instalados = 0
+
+        for contexto in self._obter_contextos():
+            try:
+                if contexto.evaluate(script):
+                    instalados += 1
+
+            except Exception:
+                continue
+
+        return instalados
+
+    def _ler_monitoramento_pesquisa(
+        self
+    ) -> dict[str, float | int]:
+        """
+        Retorna somente métricas técnicas do observador.
+        """
+
+        script = """
+            () => {
+                const estado = window.__arbohubPesquisaEstado;
+
+                if (!estado) {
+                    return null;
+                }
+
+                return {
+                    mutacoes: estado.mutacoes,
+                    estavel_ms: (
+                        performance.now()
+                        - estado.ultimaMutacao
+                    )
+                };
+            }
+        """
+
+        monitores = 0
+        mutacoes = 0
+        estabilidades: list[float] = []
+
+        for contexto in self._obter_contextos():
+            try:
+                estado = contexto.evaluate(script)
+
+                if estado is None:
+                    continue
+
+                monitores += 1
+                quantidade = int(
+                    estado.get("mutacoes", 0)
+                )
+                mutacoes += quantidade
+
+                if quantidade > 0:
+                    estabilidades.append(
+                        float(
+                            estado.get("estavel_ms", 0)
+                        )
+                    )
+
+            except Exception:
+                continue
+
+        estabilidade = (
+            min(estabilidades)
+            if estabilidades
+            else 0.0
+        )
+
+        return {
+            "monitores": monitores,
+            "mutacoes": mutacoes,
+            "estavel_ms": estabilidade
+        }
+
+    def _encerrar_monitoramento_pesquisa(self):
+        """
+        Desconecta o observador temporário, quando ainda existir.
+        """
+
+        script = """
+            () => {
+                try {
+                    if (window.__arbohubPesquisaObserver) {
+                        window.__arbohubPesquisaObserver.disconnect();
+                    }
+
+                    delete window.__arbohubPesquisaObserver;
+                    delete window.__arbohubPesquisaEstado;
+
+                } catch (erro) {
+                    // O documento pode ter sido substituído.
+                }
+            }
+        """
+
+        for contexto in self._obter_contextos():
+            try:
+                contexto.evaluate(script)
+
+            except Exception:
+                continue
+
+    def _aguardar_conclusao_pesquisa(
+        self,
+        estado_antes: dict[str, int],
+        url_antes: str,
+        monitores_iniciais: int,
+        tempo_limite_segundos: float
+    ) -> str:
+        """
+        Confirma a conclusão por atualização AJAX, popup,
+        navegação, mudança estrutural ou ciclo do botão.
+
+        O MutationObserver evita que a execução fique aguardando
+        quando o popup Processando foi rápido demais para ser visto.
+        """
+
+        inicio = monotonic()
+        limite = inicio + tempo_limite_segundos
+        viu_botao_desabilitado = False
+        proxima_verificacao_fallback = inicio
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+            agora = monotonic()
+
+            if self._processamento_sinan_visivel():
+                self._aguardar_fim_processamento()
+                return "popup Processando concluído"
+
+            if self.pagina.url != url_antes:
+                return "navegação concluída"
+
+            monitoramento = (
+                self._ler_monitoramento_pesquisa()
+            )
+
+            monitores_atuais = int(
+                monitoramento["monitores"]
+            )
+            mutacoes = int(
+                monitoramento["mutacoes"]
+            )
+            estavel_ms = float(
+                monitoramento["estavel_ms"]
+            )
+
+            # Um documento ou frame monitorado foi substituído.
+            if (
+                monitores_iniciais > 0
+                and monitores_atuais < monitores_iniciais
+                and agora - inicio >= 0.25
+            ):
+                return "documento ou frame atualizado"
+
+            # Atualização AJAX detectada e já estabilizada.
+            if (
+                mutacoes > 0
+                and estavel_ms
+                >= self.ESTABILIDADE_RESULTADO_PESQUISA_MS
+            ):
+                return "atualização AJAX concluída"
+
+            botao_habilitado = (
+                self._botao_pesquisar_esta_habilitado()
+            )
+
+            if not botao_habilitado:
+                viu_botao_desabilitado = True
+
+            elif viu_botao_desabilitado:
+                return "botão Pesquisar reabilitado"
+
+            # Os sinais de fallback são mais caros. Verificamos
+            # apenas duas vezes por segundo, e não a cada ciclo.
+            if agora >= proxima_verificacao_fallback:
+                proxima_verificacao_fallback = agora + 0.5
+
+                mensagem = self._mensagem_resultado_segura()
+
+                if mensagem is not None:
+                    return mensagem
+
+                estado_atual = (
+                    self._capturar_estado_estrutural_resultado()
+                )
+
+                if estado_atual != estado_antes:
+                    return "estrutura de resultados atualizada"
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_PESQUISA_MS
+            )
+
+        raise RuntimeError(
+            "A pesquisa foi acionada, mas o SINAN não "
+            "apresentou um sinal técnico reconhecível de "
+            "conclusão dentro de "
+            f"{tempo_limite_segundos} segundos."
+        )
+
+    def _botao_pesquisar_esta_habilitado(self) -> bool:
+        """
+        Verifica rapidamente o estado do botão Pesquisar.
+        """
+
+        try:
+            contexto = self._localizar_contexto_formulario()
+        except RuntimeError:
+            return False
+
+        localizadores = [
+            contexto.get_by_role(
+                "button",
+                name="Pesquisar",
+                exact=True
+            ),
+            contexto.locator(
+                "input[type='button'][value='Pesquisar'], "
+                "input[type='submit'][value='Pesquisar']"
+            ),
+            contexto.locator("button").filter(
+                has_text="Pesquisar"
+            )
+        ]
+
+        for localizador in localizadores:
+            try:
+                quantidade = localizador.count()
+            except Exception:
+                continue
+
+            for indice in range(quantidade):
+                botao = localizador.nth(indice)
+
+                try:
+                    if botao.is_visible():
+                        return botao.is_enabled()
+
+                except Exception:
+                    continue
+
+        return False
+
+    def _mensagem_resultado_segura(self) -> str | None:
+        """
+        Procura somente mensagens genéricas de resultado.
+
+        Não lê nomes, identificadores nem valores de linhas.
+        """
+
+        mensagens = [
+            "Nenhum registro encontrado",
+            "Nenhum resultado encontrado",
+            "Não foram encontrados registros",
+            "Consulta realizada com sucesso",
+            "Resultado da pesquisa"
+        ]
+
+        for contexto in self._obter_contextos():
+            for mensagem in mensagens:
+                try:
+                    candidatos = contexto.get_by_text(
+                        mensagem,
+                        exact=False
+                    )
+
+                    for indice in range(candidatos.count()):
+                        if candidatos.nth(indice).is_visible():
+                            return mensagem
+
+                except Exception:
+                    continue
+
+        return None
+
+    def _capturar_estado_estrutural_resultado(
+        self
+    ) -> dict[str, int]:
+        """
+        Captura apenas contagens estruturais da página.
+
+        Não lê texto de células, nomes ou identificadores.
+        """
+
+        script = """
+            raiz => {
+                const visivel = elemento => {
+                    if (!elemento) {
+                        return false;
+                    }
+
+                    const estilo = window.getComputedStyle(elemento);
+                    const retangulo = elemento.getBoundingClientRect();
+
+                    return (
+                        estilo.display !== "none"
+                        && estilo.visibility !== "hidden"
+                        && retangulo.width > 0
+                        && retangulo.height > 0
+                    );
+                };
+
+                const tabelas = Array.from(
+                    raiz.querySelectorAll("table")
+                ).filter(visivel);
+
+                let linhas = 0;
+
+                for (const tabela of tabelas) {
+                    linhas += Array.from(
+                        tabela.querySelectorAll("tbody tr")
+                    ).filter(visivel).length;
+                }
+
+                const regioesResultado = Array.from(
+                    raiz.querySelectorAll(
+                        "[id*='result' i], "
+                        "[id*='resultado' i], "
+                        "[class*='result' i], "
+                        "[class*='resultado' i], "
+                        "[class*='rich-table' i], "
+                        "[class*='rf-dt' i]"
+                    )
+                ).filter(visivel).length;
+
+                return {
+                    tabelas: tabelas.length,
+                    linhas: linhas,
+                    regioes: regioesResultado
+                };
+            }
+        """
+
+        total = {
+            "tabelas": 0,
+            "linhas": 0,
+            "regioes": 0
+        }
+
+        for contexto in self._obter_contextos():
+            try:
+                corpo = contexto.locator("body")
+
+                if corpo.count() == 0:
+                    continue
+
+                estado = corpo.evaluate(script)
+
+                total["tabelas"] += int(
+                    estado.get("tabelas", 0)
+                )
+                total["linhas"] += int(
+                    estado.get("linhas", 0)
+                )
+                total["regioes"] += int(
+                    estado.get("regioes", 0)
+                )
+
+            except Exception:
+                continue
+
+        return total
+
+    # ------------------------------------------------------------------
+    # Sincronização pelas requisições reais do SINAN
+    # ------------------------------------------------------------------
+
+    def _requisicao_e_assincrona_relevante(
+        self,
+        requisicao
+    ) -> bool:
+        """
+        Considera XHR, fetch e qualquer POST do formulário JSF.
+        Não lê URL, corpo, cabeçalhos nem conteúdo da resposta.
+        """
+
+        try:
+            return (
+                requisicao.resource_type in {"xhr", "fetch"}
+                or requisicao.method.upper() == "POST"
+            )
+
+        except Exception:
+            return False
+
+    def _ao_iniciar_requisicao(self, requisicao):
+        if not self._requisicao_e_assincrona_relevante(
+            requisicao
+        ):
+            return
+
+        identificador = id(requisicao)
+        self._requisicoes_ajax_pendentes.add(
+            identificador
+        )
+        self._total_requisicoes_ajax += 1
+        self._ultima_atividade_ajax = monotonic()
+
+    def _ao_finalizar_requisicao(self, requisicao):
+        identificador = id(requisicao)
+
+        if identificador not in self._requisicoes_ajax_pendentes:
+            return
+
+        self._requisicoes_ajax_pendentes.discard(
+            identificador
+        )
+        self._ultima_atividade_ajax = monotonic()
+
+    def _marcar_estado_ajax(self) -> int:
+        """
+        Registra quantas requisições já haviam começado antes
+        de uma ação do usuário automatizada.
+        """
+
+        return self._total_requisicoes_ajax
+
+    def _aguardar_ajax_apos_acao(
+        self,
+        marcador_ajax: int,
+        descricao: str
+    ) -> bool:
+        """
+        Aguarda a requisição realmente iniciada pela ação.
+
+        Internet boa: avança assim que a requisição termina.
+        Internet lenta: aguarda somente o tempo real da resposta.
+        Sem requisição: continua após uma janela curta de 450 ms.
+        """
+
+        inicio = monotonic()
+        limite = inicio + self.TEMPO_PROCESSAMENTO_SEGUNDOS
+        limite_inicio = (
+            inicio + self.JANELA_INICIO_AJAX_MS / 1000
+        )
+        estabilidade = (
+            self.ESTABILIDADE_APOS_AJAX_MS / 1000
+        )
+        viu_requisicao = False
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+            agora = monotonic()
+
+            if self._total_requisicoes_ajax > marcador_ajax:
+                viu_requisicao = True
+
+            if self._processamento_sinan_visivel():
+                self._aguardar_fim_processamento()
+                viu_requisicao = True
+
+            if viu_requisicao:
+                if (
+                    not self._requisicoes_ajax_pendentes
+                    and agora - self._ultima_atividade_ajax
+                    >= estabilidade
+                ):
+                    return True
+
+            elif agora >= limite_inicio:
+                return False
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_VERIFICACAO_MS
+            )
+
+        raise RuntimeError(
+            f"O processamento de '{descricao}' não terminou "
+            f"após {self.TEMPO_PROCESSAMENTO_SEGUNDOS} segundos."
+        )
+
+    def _aguardar_criterio_com_evolucao_estavel(
+        self,
+        texto_criterio: str,
+        tempo_limite_segundos: float
+    ) -> bool:
+        """
+        Aguarda o critério ser carregado enquanto Evolução
+        permanece selecionada.
+
+        Se uma resposta tardia voltar Campo para "Selecione",
+        encerra imediatamente para que o fluxo reaplique Evolução.
+        """
+
+        limite = monotonic() + tempo_limite_segundos
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+
+            if self._processamento_sinan_visivel():
+                self._aguardar_fim_processamento()
+
+            if not self._evolucao_esta_selecionada():
+                return False
+
+            if self._opcao_esta_disponivel_em_select(
+                texto_opcao=texto_criterio,
+                exato=True
+            ):
+                return True
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_VERIFICACAO_MS
+            )
+
+        return False
+
+    def _opcao_esta_disponivel_em_select(
+        self,
+        texto_opcao: str,
+        exato: bool
+    ) -> bool:
+        """
+        Verificação instantânea, sem timeout interno.
+        """
+
+        try:
+            contexto = self._localizar_contexto_formulario()
+            selects = contexto.locator("select")
+            quantidade = selects.count()
+
+        except Exception:
+            return False
+
+        for indice in range(quantidade):
+            select = selects.nth(indice)
+
+            try:
+                if not select.is_visible():
+                    continue
+
+                textos = select.locator(
+                    "option"
+                ).all_text_contents()
+
+                if self._select_contem_opcao(
+                    textos=textos,
+                    alvo=texto_opcao,
+                    exato=exato
+                ):
+                    return True
+
+            except Exception:
+                continue
+
+        return False
+
+    def _filtros_basicos_estao_corretos_rapido(self) -> bool:
+        return (
+            self._periodo_e_datas_estao_corretos()
+            and self._agravo_esta_selecionado()
+            and self._localizacao_esta_selecionada()
+        )
 
     # ------------------------------------------------------------------
     # Sincronização específica com "Processando"
