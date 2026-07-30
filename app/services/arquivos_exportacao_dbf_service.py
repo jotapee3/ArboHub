@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 from datetime import date, datetime
 from pathlib import Path
@@ -22,9 +23,11 @@ class ArquivosExportacaoDbfService:
 
     O serviço também pode instalar a dupla validada em:
     - F:\\Antropozoonoses\\Teste AB1;
-    - F:\\Antropozoonoses\\Teste AB2.
+    - F:\\Antropozoonoses\\Teste AB2;
+    - Documents\\SINAN\\Bancos_Atuais.
 
-    Ele ainda não substitui os arquivos de Bancos_Atuais.
+    Todas as substituições usam arquivos temporários, hash
+    SHA-256, backup e restauração em caso de falha.
     """
 
     AGRAVO_DENGUE = "dengue"
@@ -1354,6 +1357,452 @@ class ArquivosExportacaoDbfService:
                 hash_arquivo.update(bloco)
 
         return hash_arquivo.hexdigest()
+
+    # ------------------------------------------------------------------
+    # Instalação segura em Bancos_Atuais
+    # ------------------------------------------------------------------
+
+    def caminhos_bancos_atuais(
+        self,
+        data_referencia: date | None = None,
+        pasta_bancos_atuais: str | Path | None = None
+    ) -> dict[str, Path]:
+        """
+        Retorna os nomes oficiais dos bancos atuais.
+
+        Exemplos para 2026:
+        - dengue_2026.dbf
+        - chiku_2026.dbf
+
+        O ano é calculado automaticamente pela data de referência.
+        """
+
+        data_referencia = (
+            data_referencia
+            or date.today()
+        )
+
+        if pasta_bancos_atuais is None:
+            pasta_bancos_atuais = (
+                Path.home()
+                / "Documents"
+                / "SINAN"
+                / "Bancos_Atuais"
+            )
+
+        pasta_bancos_atuais = Path(
+            pasta_bancos_atuais
+        )
+
+        return {
+            self.AGRAVO_DENGUE: (
+                pasta_bancos_atuais
+                / f"dengue_{data_referencia.year}.dbf"
+            ),
+            self.AGRAVO_CHIKUNGUNYA: (
+                pasta_bancos_atuais
+                / f"chiku_{data_referencia.year}.dbf"
+            )
+        }
+
+    def instalar_dbfs_bancos_atuais(
+        self,
+        data_referencia: date | None = None,
+        pasta_bancos_atuais: str | Path | None = None
+    ) -> dict[str, object]:
+        """
+        Atualiza a dupla existente em ``Bancos_Atuais``.
+
+        O método remove, somente após validação e por meio de
+        backups, versões reconhecidas como bancos atuais:
+
+        - dengue_AAAA.dbf
+        - dengue_AAAA.txt
+        - chiku_AAAA.dbf
+        - chiku_AAAA.txt
+
+        O padrão aceita qualquer ano com quatro dígitos. Assim,
+        quando o ano mudar, a pasta continuará contendo somente
+        a dupla referente ao ano da execução.
+
+        Proteções:
+        - valida os ZIPs históricos de Dengue e Chikungunya;
+        - confirma os prefixos DENGON e CHIKON;
+        - exige que Bancos_Atuais já exista;
+        - extrai os dois DBFs para staging privado;
+        - copia para temporários na própria pasta de destino;
+        - compara tamanho e SHA-256;
+        - protege todos os bancos anteriores com backup;
+        - instala a nova dupla;
+        - restaura tudo se qualquer etapa falhar;
+        - exclui backups e staging somente após sucesso.
+
+        Nenhum registro interno do DBF é interpretado.
+        """
+
+        data_referencia = (
+            data_referencia
+            or date.today()
+        )
+
+        destinos = self.caminhos_bancos_atuais(
+            data_referencia=data_referencia,
+            pasta_bancos_atuais=pasta_bancos_atuais
+        )
+
+        pasta_destino = next(
+            iter(destinos.values())
+        ).parent
+
+        if not pasta_destino.exists():
+            raise FileNotFoundError(
+                "A pasta Bancos_Atuais não foi encontrada: "
+                f"{pasta_destino}"
+            )
+
+        if not pasta_destino.is_dir():
+            raise NotADirectoryError(
+                "O caminho de Bancos_Atuais não é uma pasta: "
+                f"{pasta_destino}"
+            )
+
+        caminho_zip_dengue = self.caminho_historico(
+            agravo=self.AGRAVO_DENGUE,
+            data_referencia=data_referencia
+        )
+        caminho_zip_chikungunya = self.caminho_historico(
+            agravo=self.AGRAVO_CHIKUNGUNYA,
+            data_referencia=data_referencia
+        )
+
+        if not caminho_zip_dengue.exists():
+            raise FileNotFoundError(
+                "O ZIP histórico de Dengue não foi encontrado: "
+                f"{caminho_zip_dengue}"
+            )
+
+        if not caminho_zip_chikungunya.exists():
+            raise FileNotFoundError(
+                "O ZIP histórico de Chikungunya não foi "
+                f"encontrado: {caminho_zip_chikungunya}"
+            )
+
+        pasta_staging = self.criar_pasta_extracao(
+            data_referencia=data_referencia
+        )
+
+        itens = []
+        sucesso = False
+
+        try:
+            dengue_extraida = self.extrair_dbf_para_staging(
+                caminho_zip=caminho_zip_dengue,
+                pasta_destino=pasta_staging,
+                agravo=self.AGRAVO_DENGUE,
+                nome_destino=(
+                    f"dengue_{data_referencia.year}.dbf"
+                )
+            )
+
+            chikungunya_extraida = (
+                self.extrair_dbf_para_staging(
+                    caminho_zip=caminho_zip_chikungunya,
+                    pasta_destino=pasta_staging,
+                    agravo=self.AGRAVO_CHIKUNGUNYA,
+                    nome_destino=(
+                        f"chiku_{data_referencia.year}.dbf"
+                    )
+                )
+            )
+
+            extraidos = {
+                self.AGRAVO_DENGUE: dengue_extraida,
+                self.AGRAVO_CHIKUNGUNYA:
+                    chikungunya_extraida
+            }
+
+            identificador = (
+                datetime.now().strftime("%Y%m%d%H%M%S%f")
+            )
+
+            for agravo in (
+                self.AGRAVO_DENGUE,
+                self.AGRAVO_CHIKUNGUNYA
+            ):
+                origem = Path(
+                    extraidos[agravo][
+                        "caminho_temporario"
+                    ]
+                )
+                destino = destinos[agravo]
+
+                temporario_destino = (
+                    destino.parent
+                    / (
+                        f".{destino.name}.novo-"
+                        f"{os.getpid()}-{identificador}"
+                    )
+                )
+
+                arquivos_anteriores = (
+                    self._localizar_bancos_atuais_anteriores(
+                        pasta=pasta_destino,
+                        agravo=agravo
+                    )
+                )
+
+                backups = []
+
+                for indice, anterior in enumerate(
+                    arquivos_anteriores,
+                    start=1
+                ):
+                    backup = (
+                        anterior.parent
+                        / (
+                            f".{anterior.name}.backup-"
+                            f"{identificador}-{indice}"
+                        )
+                    )
+
+                    backups.append(
+                        {
+                            "original": anterior,
+                            "backup": backup,
+                            "criado": False
+                        }
+                    )
+
+                itens.append(
+                    {
+                        "agravo": agravo,
+                        "origem": origem,
+                        "destino": destino,
+                        "temporario_destino":
+                            temporario_destino,
+                        "arquivos_anteriores":
+                            arquivos_anteriores,
+                        "backups": backups,
+                        "instalado": False,
+                        "prefixo_confirmado":
+                            extraidos[agravo][
+                                "prefixo_confirmado"
+                            ],
+                        "nome_interno":
+                            extraidos[agravo][
+                                "nome_interno"
+                            ]
+                    }
+                )
+
+            # Copia e valida a nova dupla antes de tocar nos atuais.
+            for item in itens:
+                shutil.copy2(
+                    item["origem"],
+                    item["temporario_destino"]
+                )
+
+                self._validar_copia_identica(
+                    origem=item["origem"],
+                    copia=item["temporario_destino"]
+                )
+
+            # Move todos os bancos atuais reconhecidos para backup.
+            for item in itens:
+                for registro_backup in item["backups"]:
+                    original = registro_backup["original"]
+                    backup = registro_backup["backup"]
+
+                    if original.exists():
+                        os.replace(
+                            original,
+                            backup
+                        )
+                        registro_backup["criado"] = True
+
+            # Instala a nova dupla com os nomes oficiais do ano.
+            for item in itens:
+                os.replace(
+                    item["temporario_destino"],
+                    item["destino"]
+                )
+                item["instalado"] = True
+
+            # Confirma que os dois arquivos finais são idênticos.
+            for item in itens:
+                self._validar_copia_identica(
+                    origem=item["origem"],
+                    copia=item["destino"]
+                )
+
+            # Após sucesso completo, remove os backups anteriores.
+            for item in itens:
+                for registro_backup in item["backups"]:
+                    backup = registro_backup["backup"]
+
+                    if (
+                        registro_backup["criado"]
+                        and backup.exists()
+                    ):
+                        backup.unlink()
+
+            sucesso = True
+
+            resultado = {
+                item["agravo"]: {
+                    "agravo": item["agravo"],
+                    "destino": item["destino"],
+                    "nome": item["destino"].name,
+                    "tamanho_bytes":
+                        item["destino"].stat().st_size,
+                    "sha256":
+                        self._sha256_arquivo(
+                            item["destino"]
+                        ),
+                    "substituiu_existente": bool(
+                        item["arquivos_anteriores"]
+                    ),
+                    "arquivos_anteriores_removidos": [
+                        caminho.name
+                        for caminho in item[
+                            "arquivos_anteriores"
+                        ]
+                    ],
+                    "prefixo_confirmado":
+                        item["prefixo_confirmado"],
+                    "nome_interno":
+                        item["nome_interno"],
+                    "instalado": True
+                }
+                for item in itens
+            }
+
+            resultado.update(
+                {
+                    "data_referencia":
+                        data_referencia.isoformat(),
+                    "ano": data_referencia.year,
+                    "registros_lidos": False,
+                    "pastas_teste_alteradas": False,
+                    "pasta_staging": pasta_staging
+                }
+            )
+
+        except Exception:
+            # Remove instalações novas e restaura todos os bancos
+            # anteriores com seus nomes originais.
+            for item in reversed(itens):
+                try:
+                    if (
+                        item["instalado"]
+                        and item["destino"].exists()
+                    ):
+                        item["destino"].unlink()
+                except Exception:
+                    pass
+
+                for registro_backup in reversed(
+                    item["backups"]
+                ):
+                    original = registro_backup["original"]
+                    backup = registro_backup["backup"]
+
+                    try:
+                        if (
+                            registro_backup["criado"]
+                            and backup.exists()
+                        ):
+                            os.replace(
+                                backup,
+                                original
+                            )
+                    except Exception:
+                        pass
+
+                try:
+                    if item[
+                        "temporario_destino"
+                    ].exists():
+                        item[
+                            "temporario_destino"
+                        ].unlink()
+                except Exception:
+                    pass
+
+            raise
+
+        finally:
+            if sucesso:
+                self.excluir_pasta_lote(
+                    pasta_staging
+                )
+
+        resultado["pasta_temporaria_excluida"] = (
+            not pasta_staging.exists()
+        )
+
+        return resultado
+
+    def _localizar_bancos_atuais_anteriores(
+        self,
+        pasta: str | Path,
+        agravo: str
+    ) -> list[Path]:
+        """
+        Localiza somente bancos reconhecidos do agravo informado.
+
+        Dengue:
+        - dengue_2026.dbf
+        - dengue_2025.dbf
+        - variantes temporárias de teste em .txt
+
+        Chikungunya:
+        - chiku_2026.dbf
+        - chiku_2025.dbf
+        - variantes temporárias de teste em .txt
+
+        Outros arquivos existentes em Bancos_Atuais não são
+        alterados.
+        """
+
+        agravo = self._validar_agravo(
+            agravo
+        )
+        pasta = Path(pasta)
+
+        if agravo == self.AGRAVO_DENGUE:
+            prefixo_nome = "dengue"
+        else:
+            prefixo_nome = "chiku"
+
+        padrao = re.compile(
+            rf"^{re.escape(prefixo_nome)}_"
+            r"\d{4}\.(?:dbf|txt)$",
+            re.IGNORECASE
+        )
+
+        encontrados = []
+
+        for arquivo in pasta.iterdir():
+            if not arquivo.is_file():
+                continue
+
+            if arquivo.name.startswith("."):
+                continue
+
+            if not padrao.fullmatch(
+                arquivo.name
+            ):
+                continue
+
+            encontrados.append(
+                arquivo
+            )
+
+        return sorted(
+            encontrados,
+            key=lambda caminho: caminho.name.casefold()
+        )
 
     # ------------------------------------------------------------------
     # Limpeza
