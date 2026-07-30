@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from time import monotonic
-from typing import Callable
 
 from playwright.sync_api import (
     Browser,
@@ -19,7 +18,14 @@ class NavegadorSinan:
         "sinan/login/login.jsf"
     )
 
-    def __init__(self):
+    def __init__(
+        self,
+        permitir_downloads: bool = False
+    ):
+        self.permitir_downloads = bool(
+            permitir_downloads
+        )
+
         self.playwright: Playwright | None = None
         self.browser: Browser | None = None
         self.contexto: BrowserContext | None = None
@@ -31,6 +37,11 @@ class NavegadorSinan:
 
         Nenhum estado de autenticação, screenshot, vídeo ou
         rastreamento é salvo.
+
+        Downloads permanecem bloqueados por padrão. Eles só são
+        habilitados quando o fluxo de exportação instancia:
+
+        NavegadorSinan(permitir_downloads=True)
         """
 
         if self.pagina is not None:
@@ -43,7 +54,7 @@ class NavegadorSinan:
         )
 
         self.contexto = self.browser.new_context(
-            accept_downloads=False,
+            accept_downloads=self.permitir_downloads,
             viewport={
                 "width": 1366,
                 "height": 850
@@ -62,8 +73,7 @@ class NavegadorSinan:
 
     def aguardar_login_manual(
         self,
-        tempo_limite_segundos: int = 600,
-        cancelado: Callable[[], bool] | None = None
+        tempo_limite_segundos: int = 600
     ) -> bool:
         """
         Aguarda o usuário realizar o login manualmente.
@@ -83,14 +93,6 @@ class NavegadorSinan:
         )
 
         while monotonic() < limite:
-            if (
-                cancelado is not None
-                and cancelado()
-            ):
-                raise RuntimeError(
-                    "A espera pelo login foi cancelada."
-                )
-
             if self.pagina.is_closed():
                 raise RuntimeError(
                     "A janela do navegador foi fechada."
@@ -99,7 +101,7 @@ class NavegadorSinan:
             if self.login_foi_concluido():
                 return True
 
-            self.pagina.wait_for_timeout(500)
+            self.pagina.wait_for_timeout(1000)
 
         raise TimeoutError(
             "O tempo para realizar o login foi encerrado."

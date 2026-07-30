@@ -146,7 +146,7 @@ class Sidebar(ctk.CTkFrame):
             text="ArboHub",
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=24,
+                size=26,
                 weight="bold"
             ),
             text_color=Colors.TEXT_PRIMARY,
@@ -162,7 +162,7 @@ class Sidebar(ctk.CTkFrame):
             text="Software para vigilância em saúde",
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=10
+                size=12
             ),
             text_color=Colors.TEXT_SECONDARY,
             anchor="w"
@@ -287,7 +287,7 @@ class Sidebar(ctk.CTkFrame):
 
         versao = ctk.CTkLabel(
             rodape,
-            text="ArboHub v0.2",
+            text="ArboHub v0.4",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=10

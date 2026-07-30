@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
+import re
 from time import monotonic
+from typing import Callable
 
 from playwright.sync_api import Frame, Locator, Page
 
@@ -24,11 +27,29 @@ class ExportacaoBasesDbf(VerificacaoObitos):
     - alcança o checkbox
       Exportar dados de identificação do paciente.
 
-    Nesta etapa:
+    O método preparar_primeira_exportacao:
     - marca o checkbox de identificação do paciente;
-    - não clica em Solicitar;
+    - para antes de clicar em Solicitar;
     - não altera o Agravo;
     - não lê dados de pacientes.
+
+    Os métodos de solicitação:
+    - confirmam todos os campos;
+    - solicitam primeiro DENGUE;
+    - alteram apenas o Agravo para FEBRE DE CHIKUNGUNYA;
+    - restauram os demais campos se o AJAX os modificar;
+    - capturam números operacionais distintos.
+
+    O acompanhamento:
+    - abre Consultar Exportações DBF;
+    - procura exatamente os dois números salvos para o dia;
+    - lê status, quantidade e disponibilidade do link;
+    - atualiza em intervalos moderados até ambos ficarem prontos.
+
+    O download:
+    - clica somente no link da linha do número esperado;
+    - salva em caminho temporário controlado;
+    - não extrai ou substitui bancos automaticamente.
     """
 
     TEXTO_MENU_EXPORTACAO = "Exportação"
@@ -40,9 +61,30 @@ class ExportacaoBasesDbf(VerificacaoObitos):
     TEXTO_CHECKPOINT_IDENTIFICACAO = (
         "Exportar dados de identificação do paciente"
     )
+    TEXTO_SUCESSO_SOLICITACAO = (
+        "Solicitação efetuada com sucesso"
+    )
+    TEXTO_CONSULTAR_DBF = "Consultar Exportações DBF"
+    TEXTO_COLUNA_NUMERO = "Número da Solicitação"
+    TEXTO_COLUNA_QUANTIDADE = "Quantidade de Registros"
+    TEXTO_COLUNA_STATUS = "Status"
+    TEXTO_COLUNA_LINK = "Link"
+    TEXTO_LINK_DOWNLOAD = "Baixar arquivo DBF"
+    TEXTO_STATUS_CONCLUIDO = "Processamento concluído"
+
+    AGRAVO_DENGUE = "DENGUE"
+    AGRAVO_CHIKUNGUNYA = "FEBRE DE CHIKUNGUNYA"
 
     TEMPO_ABRIR_EXPORTACAO_SEGUNDOS = 120
+    TEMPO_CONFIRMAR_SOLICITACAO_SEGUNDOS = 90
     TEMPO_LOCALIZAR_CHECKPOINT_SEGUNDOS = 30
+    TEMPO_ABRIR_CONSULTA_SEGUNDOS = 60
+    TEMPO_CARREGAR_TABELA_SEGUNDOS = 30
+
+    INTERVALO_ATUALIZACAO_PADRAO_SEGUNDOS = 15
+    TEMPO_LIMITE_PROCESSAMENTO_PADRAO_SEGUNDOS = 1800
+    TEMPO_LIMITE_DOWNLOAD_SEGUNDOS = 180
+
     TENTATIVAS_ESTABILIZAR_FORMULARIO = 4
 
     def __init__(self, pagina: Page):
@@ -167,6 +209,1625 @@ class ExportacaoBasesDbf(VerificacaoObitos):
             "solicitar_acionado": False,
             "dados_de_pacientes_lidos": False
         }
+
+    def solicitar_exportacao_dengue(
+        self
+    ) -> dict[str, str | bool]:
+        """
+        Cria uma solicitação real de exportação para DENGUE.
+
+        Este método deve ser chamado depois de
+        ``preparar_primeira_exportacao``.
+        """
+
+        return self._solicitar_exportacao_agravo(
+            agravo_esperado=self.AGRAVO_DENGUE
+        )
+
+    def preparar_exportacao_chikungunya(
+        self,
+        data_referencia: date | None = None
+    ) -> dict[str, str | bool]:
+        """
+        Altera somente o Agravo para FEBRE DE CHIKUNGUNYA e
+        garante que os demais campos continuem iguais aos da
+        solicitação de Dengue.
+
+        Se uma resposta AJAX limpar algum campo, o valor correto
+        é reaplicado antes da segunda solicitação.
+        """
+
+        self._garantir_formulario_exportacao()
+
+        self._selecionar_agravo_exportacao(
+            self.AGRAVO_CHIKUNGUNYA
+        )
+
+        for _ in range(
+            self.TENTATIVAS_ESTABILIZAR_FORMULARIO
+        ):
+            if not self._periodo_e_datas_exportacao_estao_corretos():
+                self.preencher_periodo_e_datas_exportacao(
+                    data_referencia=data_referencia
+                )
+
+            if not self._localizacao_exportacao_esta_selecionada():
+                self.preencher_localizacao_exportacao()
+
+            checkpoint = (
+                self.marcar_checkpoint_identificacao_paciente()
+            )
+
+            agravo_correto = (
+                self._agravo_exportacao_esta_selecionado(
+                    self.AGRAVO_CHIKUNGUNYA
+                )
+            )
+
+            campos_corretos = (
+                self._periodo_e_datas_exportacao_estao_corretos()
+                and self._localizacao_exportacao_esta_selecionada()
+                and checkpoint["marcado"]
+            )
+
+            if agravo_correto and campos_corretos:
+                return {
+                    "agravo": self.AGRAVO_CHIKUNGUNYA,
+                    "periodo": self.TEXTO_PERIODO_DATA,
+                    "data_inicial":
+                        self._data_inicial_exportacao or "",
+                    "data_final":
+                        self._data_final_exportacao or "",
+                    "localizacao": self.TEXTO_LOCALIZACAO,
+                    "checkpoint_marcado": True,
+                    "campos_mantidos": True,
+                    "solicitar_acionado": False,
+                    "dados_de_pacientes_lidos": False
+                }
+
+            if not agravo_correto:
+                self._selecionar_agravo_exportacao(
+                    self.AGRAVO_CHIKUNGUNYA
+                )
+
+            self.pagina.wait_for_timeout(150)
+
+        raise RuntimeError(
+            "Não foi possível manter Agravo, datas, localização "
+            "e checkbox corretos para FEBRE DE CHIKUNGUNYA."
+        )
+
+    def solicitar_exportacao_chikungunya(
+        self,
+        numero_solicitacao_dengue: str
+    ) -> dict[str, str | bool]:
+        """
+        Cria a solicitação real de FEBRE DE CHIKUNGUNYA.
+
+        O número da solicitação de Dengue é ignorado durante a
+        captura para impedir que a mensagem anterior seja
+        confundida com a confirmação nova.
+        """
+
+        resultado = self._solicitar_exportacao_agravo(
+            agravo_esperado=self.AGRAVO_CHIKUNGUNYA,
+            numeros_ignorados={
+                str(numero_solicitacao_dengue)
+            }
+        )
+
+        if (
+            resultado["numero_solicitacao"]
+            == str(numero_solicitacao_dengue)
+        ):
+            raise RuntimeError(
+                "O SINAN retornou o mesmo número para Dengue "
+                "e Chikungunya."
+            )
+
+        return resultado
+
+    def _solicitar_exportacao_agravo(
+        self,
+        agravo_esperado: str,
+        numeros_ignorados: set[str] | None = None
+    ) -> dict[str, str | bool]:
+        """
+        Valida o formulário, aciona Solicitar e captura o número
+        operacional da nova solicitação.
+        """
+
+        self._garantir_formulario_exportacao()
+
+        if not self._periodo_e_datas_exportacao_estao_corretos():
+            raise RuntimeError(
+                "Período ou datas não estão corretos. "
+                f"A solicitação de {agravo_esperado} "
+                "não foi enviada."
+            )
+
+        if not self._localizacao_exportacao_esta_selecionada():
+            raise RuntimeError(
+                "'Notificação ou Residência' não permaneceu "
+                "selecionado. A solicitação não foi enviada."
+            )
+
+        checkpoint = (
+            self.marcar_checkpoint_identificacao_paciente()
+        )
+
+        if not checkpoint["marcado"]:
+            raise RuntimeError(
+                "O checkbox de identificação do paciente "
+                "não permaneceu marcado."
+            )
+
+        if not self._agravo_exportacao_esta_selecionado(
+            agravo_esperado
+        ):
+            agravo_atual = (
+                self._obter_agravo_exportacao_atual()
+            )
+
+            raise RuntimeError(
+                "O Agravo atual não corresponde ao esperado. "
+                f"Esperado: {agravo_esperado}. "
+                f"Encontrado: {agravo_atual}. "
+                "A solicitação não foi enviada."
+            )
+
+        botao = self._localizar_botao_solicitar()
+        marcador_ajax = self._marcar_estado_ajax()
+
+        self._clicar_elemento_resiliente(
+            elemento=botao,
+            descricao=(
+                f"Solicitar exportação de {agravo_esperado}"
+            )
+        )
+
+        self._aguardar_ajax_apos_acao(
+            marcador_ajax=marcador_ajax,
+            descricao=(
+                f"Solicitação de exportação de "
+                f"{agravo_esperado}"
+            )
+        )
+
+        numero = self._aguardar_numero_solicitacao(
+            numeros_ignorados=numeros_ignorados
+        )
+
+        return {
+            "agravo": agravo_esperado,
+            "numero_solicitacao": numero,
+            "solicitar_acionado": True,
+            "solicitacao_confirmada": True,
+            "dados_de_pacientes_lidos": False
+        }
+
+    def _selecionar_agravo_exportacao(
+        self,
+        agravo: str
+    ):
+        """
+        Seleciona o Agravo em um select tradicional ou no combo
+        antigo do SINAN.
+        """
+
+        if self._agravo_exportacao_esta_selecionado(
+            agravo
+        ):
+            return
+
+        contexto = self._localizar_contexto_exportacao()
+        marcador_ajax = self._marcar_estado_ajax()
+
+        selecionou = (
+            self._selecionar_agravo_em_select_exportacao(
+                contexto=contexto,
+                agravo=agravo
+            )
+        )
+
+        if not selecionou:
+            self._agravo_esperado = agravo
+
+            self._selecionar_agravo_combo(
+                contexto=contexto,
+                nome_agravo=agravo
+            )
+
+        self._aguardar_ajax_apos_acao(
+            marcador_ajax=marcador_ajax,
+            descricao=f"Agravo {agravo}"
+        )
+
+        self._confirmar_rapido(
+            condicao=lambda: (
+                self._agravo_exportacao_esta_selecionado(
+                    agravo
+                )
+            ),
+            descricao=f"Agravo {agravo}"
+        )
+
+    def _selecionar_agravo_em_select_exportacao(
+        self,
+        contexto: Page | Frame,
+        agravo: str
+    ) -> bool:
+        alvo = self._normalizar_texto(agravo)
+        selects = contexto.locator("select")
+
+        try:
+            quantidade = selects.count()
+        except Exception:
+            return False
+
+        for indice in range(quantidade):
+            select = selects.nth(indice)
+
+            try:
+                if not select.is_visible():
+                    continue
+
+                opcoes = select.locator("option")
+                textos = opcoes.all_text_contents()
+                indice_opcao = None
+
+                for indice_texto, texto in enumerate(textos):
+                    if alvo in self._normalizar_texto(texto):
+                        indice_opcao = indice_texto
+                        break
+
+                if indice_opcao is None:
+                    continue
+
+                opcao = opcoes.nth(indice_opcao)
+                valor = opcao.get_attribute("value")
+
+                if valor is not None:
+                    select.select_option(value=valor)
+                else:
+                    select.select_option(index=indice_opcao)
+
+                return True
+
+            except Exception:
+                continue
+
+        return False
+
+    def _agravo_exportacao_esta_selecionado(
+        self,
+        agravo: str
+    ) -> bool:
+        try:
+            valor_atual = (
+                self._obter_agravo_exportacao_atual()
+            )
+        except Exception:
+            return False
+
+        return (
+            self._normalizar_texto(agravo)
+            in self._normalizar_texto(valor_atual)
+        )
+
+    def _obter_agravo_exportacao_atual(
+        self
+    ) -> str:
+        """
+        Lê somente o valor operacional do controle Agravo.
+
+        A tela pode usar ``select`` ou um combo antigo baseado
+        em ``input``. Nenhum dado de paciente é acessado.
+        """
+
+        contexto = self._localizar_contexto_exportacao()
+
+        # Primeiro tenta o controle associado ao rótulo Agravo.
+        try:
+            controles = contexto.get_by_label(
+                "Agravo",
+                exact=False
+            )
+
+            for indice in range(controles.count()):
+                controle = controles.nth(indice)
+
+                try:
+                    if not controle.is_visible():
+                        continue
+
+                    valor = self._valor_textual_controle(
+                        controle
+                    )
+
+                    if valor:
+                        return valor
+
+                except Exception:
+                    continue
+
+        except Exception:
+            pass
+
+        # Depois procura selects que contenham as opções dos
+        # agravos usados pela rotina.
+        selects = contexto.locator("select")
+
+        try:
+            quantidade_selects = selects.count()
+        except Exception:
+            quantidade_selects = 0
+
+        for indice in range(quantidade_selects):
+            select = selects.nth(indice)
+
+            try:
+                if not select.is_visible():
+                    continue
+
+                opcoes = select.locator(
+                    "option"
+                ).all_text_contents()
+
+                opcoes_normalizadas = [
+                    self._normalizar_texto(texto)
+                    for texto in opcoes
+                ]
+
+                possui_agravo = any(
+                    (
+                        self._normalizar_texto(
+                            self.AGRAVO_DENGUE
+                        ) in texto
+                        or self._normalizar_texto(
+                            self.AGRAVO_CHIKUNGUNYA
+                        ) in texto
+                    )
+                    for texto in opcoes_normalizadas
+                )
+
+                if not possui_agravo:
+                    continue
+
+                valor = self._valor_textual_controle(
+                    select
+                )
+
+                if valor:
+                    return valor
+
+            except Exception:
+                continue
+
+        # Compatibilidade com combo antigo baseado em input.
+        inputs = contexto.locator(
+            "input:not([type]), "
+            "input[type='text'], "
+            "input[readonly], "
+            "input[disabled]"
+        )
+
+        try:
+            quantidade_inputs = inputs.count()
+        except Exception:
+            quantidade_inputs = 0
+
+        for indice in range(quantidade_inputs):
+            campo = inputs.nth(indice)
+
+            try:
+                if not campo.is_visible():
+                    continue
+
+                valor = campo.evaluate(
+                    "elemento => elemento.value || ''"
+                )
+                valor = str(valor).strip()
+                normalizado = self._normalizar_texto(
+                    valor
+                )
+
+                if (
+                    self._normalizar_texto(
+                        self.AGRAVO_DENGUE
+                    ) in normalizado
+                    or self._normalizar_texto(
+                        self.AGRAVO_CHIKUNGUNYA
+                    ) in normalizado
+                ):
+                    return valor
+
+            except Exception:
+                continue
+
+        raise RuntimeError(
+            "Não foi possível identificar o valor atual "
+            "do campo Agravo."
+        )
+
+    def _valor_textual_controle(
+        self,
+        controle: Locator
+    ) -> str:
+        tag = self._tag_name(controle)
+
+        if tag == "select":
+            valor = controle.evaluate(
+                """
+                elemento => {
+                    const indice = elemento.selectedIndex;
+
+                    if (
+                        indice < 0
+                        || !elemento.options
+                        || !elemento.options[indice]
+                    ) {
+                        return "";
+                    }
+
+                    return (
+                        elemento.options[indice].textContent
+                        || elemento.options[indice].innerText
+                        || ""
+                    );
+                }
+                """
+            )
+
+            return str(valor).strip()
+
+        if tag == "input":
+            valor = controle.evaluate(
+                "elemento => elemento.value || ''"
+            )
+
+            return str(valor).strip()
+
+        return ""
+
+    def _localizar_botao_solicitar(
+        self
+    ) -> Locator:
+        """
+        Localiza o botão principal Solicitar do formulário.
+
+        Evita confundir o botão com os itens do menu Exportação.
+        """
+
+        contexto = self._localizar_contexto_exportacao()
+
+        try:
+            botoes = contexto.get_by_role(
+                "button",
+                name="Solicitar",
+                exact=True
+            )
+
+            for indice in range(botoes.count()):
+                botao = botoes.nth(indice)
+
+                if (
+                    botao.is_visible()
+                    and botao.is_enabled()
+                ):
+                    return botao
+
+        except Exception:
+            pass
+
+        inputs = contexto.locator(
+            "input[type='submit'], "
+            "input[type='button']"
+        )
+
+        try:
+            quantidade = inputs.count()
+        except Exception:
+            quantidade = 0
+
+        for indice in range(quantidade):
+            botao = inputs.nth(indice)
+
+            try:
+                if (
+                    not botao.is_visible()
+                    or not botao.is_enabled()
+                ):
+                    continue
+
+                valor = botao.get_attribute(
+                    "value"
+                ) or ""
+
+                if (
+                    self._normalizar_texto(valor)
+                    == self._normalizar_texto("Solicitar")
+                ):
+                    return botao
+
+            except Exception:
+                continue
+
+        botoes_html = contexto.locator("button")
+
+        try:
+            quantidade = botoes_html.count()
+        except Exception:
+            quantidade = 0
+
+        for indice in range(quantidade):
+            botao = botoes_html.nth(indice)
+
+            try:
+                if (
+                    not botao.is_visible()
+                    or not botao.is_enabled()
+                ):
+                    continue
+
+                texto = botao.inner_text()
+
+                if (
+                    self._normalizar_texto(texto)
+                    == self._normalizar_texto("Solicitar")
+                ):
+                    return botao
+
+            except Exception:
+                continue
+
+        raise RuntimeError(
+            "Não foi possível localizar o botão Solicitar."
+        )
+
+    def _aguardar_numero_solicitacao(
+        self,
+        numeros_ignorados: set[str] | None = None
+    ) -> str:
+        """
+        Aguarda a mensagem:
+
+        Solicitação efetuada com sucesso! Número: 1234567
+
+        Na segunda solicitação, números já conhecidos podem ser
+        ignorados para que a mensagem de Dengue não seja
+        confundida com a de Chikungunya.
+        """
+
+        limite = (
+            monotonic()
+            + self.TEMPO_CONFIRMAR_SOLICITACAO_SEGUNDOS
+        )
+
+        ignorados = {
+            str(numero)
+            for numero in (numeros_ignorados or set())
+        }
+
+        padrao_numero = re.compile(
+            r"N[uú]mero\s*:\s*(\d+)",
+            re.IGNORECASE
+        )
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+            numeros_encontrados: list[str] = []
+
+            for contexto in self._obter_contextos():
+                candidatos = contexto.get_by_text(
+                    self.TEXTO_SUCESSO_SOLICITACAO,
+                    exact=False
+                )
+
+                try:
+                    quantidade = candidatos.count()
+                except Exception:
+                    continue
+
+                for indice in range(quantidade):
+                    candidato = candidatos.nth(indice)
+
+                    try:
+                        if not candidato.is_visible():
+                            continue
+
+                        textos = []
+
+                        texto_direto = (
+                            candidato.inner_text().strip()
+                        )
+
+                        if texto_direto:
+                            textos.append(texto_direto)
+
+                        bloco = candidato.locator(
+                            "xpath=ancestor::*"
+                            "[self::td or self::div or self::form]"
+                            "[1]"
+                        )
+
+                        if bloco.count() > 0:
+                            texto_bloco = (
+                                bloco.first.inner_text().strip()
+                            )
+
+                            if texto_bloco:
+                                textos.append(texto_bloco)
+
+                        for texto in textos:
+                            numeros_encontrados.extend(
+                                padrao_numero.findall(texto)
+                            )
+
+                    except Exception:
+                        continue
+
+            for numero in reversed(numeros_encontrados):
+                if numero not in ignorados:
+                    return numero
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_VERIFICACAO_MS
+            )
+
+        raise RuntimeError(
+            "A solicitação foi acionada, mas não apareceu "
+            "um número novo de confirmação dentro do tempo limite."
+        )
+
+
+    def abrir_consulta_exportacoes_dbf(self):
+        """
+        Abre:
+
+        Exportação
+        → Consultar Exportações DBF
+        """
+
+        if self._tela_consulta_exportacoes_esta_aberta():
+            return
+
+        limite = (
+            monotonic()
+            + self.TEMPO_ABRIR_CONSULTA_SEGUNDOS
+        )
+        ultima_falha: Exception | None = None
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+
+            try:
+                self._abrir_menu_exportacao()
+
+                item = self._aguardar_texto_visivel(
+                    texto=self.TEXTO_CONSULTAR_DBF,
+                    tempo_limite_segundos=8,
+                    exato=False
+                )
+
+                self._clicar_elemento_resiliente(
+                    elemento=item,
+                    descricao=self.TEXTO_CONSULTAR_DBF
+                )
+
+                self._aguardar_tela_consulta_exportacoes()
+                return
+
+            except Exception as erro:
+                ultima_falha = erro
+                self.pagina.wait_for_timeout(300)
+
+        detalhe = (
+            f" Última tentativa: {ultima_falha}"
+            if ultima_falha
+            else ""
+        )
+
+        raise RuntimeError(
+            "Não foi possível abrir Exportação → "
+            "Consultar Exportações DBF."
+            + detalhe
+        )
+
+    def consultar_solicitacoes_dbf(
+        self,
+        numero_dengue: str,
+        numero_chikungunya: str
+    ) -> dict[str, dict[str, object]]:
+        """
+        Consulta uma vez as duas solicitações informadas.
+
+        Nesta etapa:
+        - não atualiza a página repetidamente;
+        - não clica em links;
+        - não inicia downloads;
+        - lê somente metadados operacionais da tabela.
+        """
+
+        self._garantir_tela_consulta_exportacoes()
+
+        numero_dengue = self._validar_numero_solicitacao(
+            numero_dengue
+        )
+        numero_chikungunya = (
+            self._validar_numero_solicitacao(
+                numero_chikungunya
+            )
+        )
+
+        if numero_dengue == numero_chikungunya:
+            raise ValueError(
+                "Os números de Dengue e Chikungunya "
+                "precisam ser diferentes."
+            )
+
+        return {
+            "dengue": self._ler_solicitacao_na_tabela(
+                numero_dengue
+            ),
+            "chikungunya": self._ler_solicitacao_na_tabela(
+                numero_chikungunya
+            )
+        }
+
+
+    def atualizar_consulta_exportacoes_dbf(self):
+        """
+        Clica uma única vez em Atualizar e aguarda a tabela
+        reaparecer.
+
+        A ação não cria solicitações e não inicia downloads.
+        """
+
+        self._garantir_tela_consulta_exportacoes()
+
+        botao = (
+            self._localizar_botao_atualizar_exportacoes()
+        )
+        marcador_ajax = self._marcar_estado_ajax()
+
+        self._clicar_elemento_resiliente(
+            elemento=botao,
+            descricao="Atualizar exportações DBF"
+        )
+
+        self._aguardar_ajax_apos_acao(
+            marcador_ajax=marcador_ajax,
+            descricao="Atualização das exportações DBF"
+        )
+
+        self._aguardar_tela_consulta_exportacoes()
+
+    def aguardar_solicitacoes_prontas(
+        self,
+        numero_dengue: str,
+        numero_chikungunya: str,
+        intervalo_segundos: float | None = None,
+        tempo_limite_segundos: float | None = None,
+        ao_atualizar: Callable[
+            [int, dict[str, dict[str, object]]],
+            None
+        ] | None = None,
+        cancelado: Callable[[], bool] | None = None
+    ) -> dict[str, object]:
+        """
+        Acompanha as duas solicitações até ambas apresentarem:
+
+        - Status = Processamento concluído;
+        - Link = Baixar arquivo DBF.
+
+        A tabela é consultada imediatamente e, se necessário,
+        atualizada em intervalos moderados.
+
+        O método:
+        - não cria novas solicitações;
+        - não clica nos links de download;
+        - não lê o conteúdo dos DBFs;
+        - aceita cancelamento para futura integração à interface.
+        """
+
+        self._garantir_tela_consulta_exportacoes()
+
+        numero_dengue = self._validar_numero_solicitacao(
+            numero_dengue
+        )
+        numero_chikungunya = (
+            self._validar_numero_solicitacao(
+                numero_chikungunya
+            )
+        )
+
+        if numero_dengue == numero_chikungunya:
+            raise ValueError(
+                "Os números de Dengue e Chikungunya "
+                "precisam ser diferentes."
+            )
+
+        if intervalo_segundos is None:
+            intervalo_segundos = (
+                self.INTERVALO_ATUALIZACAO_PADRAO_SEGUNDOS
+            )
+
+        if tempo_limite_segundos is None:
+            tempo_limite_segundos = (
+                self.TEMPO_LIMITE_PROCESSAMENTO_PADRAO_SEGUNDOS
+            )
+
+        intervalo_segundos = float(
+            intervalo_segundos
+        )
+        tempo_limite_segundos = float(
+            tempo_limite_segundos
+        )
+
+        if intervalo_segundos < 5:
+            raise ValueError(
+                "O intervalo de atualização deve ser de "
+                "pelo menos 5 segundos."
+            )
+
+        if tempo_limite_segundos <= 0:
+            raise ValueError(
+                "O tempo limite precisa ser maior que zero."
+            )
+
+        inicio = monotonic()
+        tentativa = 0
+
+        while True:
+            self._verificar_cancelamento_exportacao(
+                cancelado
+            )
+
+            tentativa += 1
+
+            resultados = (
+                self.consultar_solicitacoes_dbf(
+                    numero_dengue=numero_dengue,
+                    numero_chikungunya=(
+                        numero_chikungunya
+                    )
+                )
+            )
+
+            if ao_atualizar is not None:
+                ao_atualizar(
+                    tentativa,
+                    resultados
+                )
+
+            if self._duas_solicitacoes_estao_prontas(
+                resultados
+            ):
+                return {
+                    "tentativas": tentativa,
+                    "tempo_decorrido_segundos": round(
+                        monotonic() - inicio,
+                        1
+                    ),
+                    "dengue": resultados["dengue"],
+                    "chikungunya":
+                        resultados["chikungunya"],
+                    "ambas_prontas": True,
+                    "downloads_iniciados": False,
+                    "dados_de_pacientes_lidos": False
+                }
+
+            tempo_decorrido = monotonic() - inicio
+
+            if tempo_decorrido >= tempo_limite_segundos:
+                raise TimeoutError(
+                    "As duas exportações não ficaram "
+                    "disponíveis dentro do tempo limite de "
+                    f"{int(tempo_limite_segundos)} segundos."
+                )
+
+            tempo_restante = (
+                tempo_limite_segundos
+                - tempo_decorrido
+            )
+
+            espera = min(
+                intervalo_segundos,
+                tempo_restante
+            )
+
+            self._aguardar_intervalo_exportacao(
+                segundos=espera,
+                cancelado=cancelado
+            )
+
+            self._verificar_cancelamento_exportacao(
+                cancelado
+            )
+
+            self.atualizar_consulta_exportacoes_dbf()
+
+    def _duas_solicitacoes_estao_prontas(
+        self,
+        resultados: dict[str, dict[str, object]]
+    ) -> bool:
+        return all(
+            bool(resultado["encontrada"])
+            and bool(
+                resultado["processamento_concluido"]
+            )
+            and bool(resultado["link_disponivel"])
+            for resultado in resultados.values()
+        )
+
+    def _aguardar_intervalo_exportacao(
+        self,
+        segundos: float,
+        cancelado: Callable[[], bool] | None
+    ):
+        """
+        Aguarda em pequenos blocos para permitir cancelamento
+        responsivo na futura integração com o ArboHub.
+        """
+
+        limite = monotonic() + segundos
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+            self._verificar_cancelamento_exportacao(
+                cancelado
+            )
+
+            restante = limite - monotonic()
+
+            self.pagina.wait_for_timeout(
+                int(
+                    min(
+                        restante,
+                        0.25
+                    )
+                    * 1000
+                )
+            )
+
+    def _verificar_cancelamento_exportacao(
+        self,
+        cancelado: Callable[[], bool] | None
+    ):
+        if (
+            cancelado is not None
+            and cancelado()
+        ):
+            raise RuntimeError(
+                "O acompanhamento das exportações "
+                "foi cancelado."
+            )
+
+    def _localizar_botao_atualizar_exportacoes(
+        self
+    ) -> Locator:
+        """
+        Localiza o botão Atualizar da tela de consulta.
+
+        Suporta botão HTML, input JSF e link estilizado.
+        """
+
+        for contexto in self._obter_contextos():
+            candidatos = [
+                contexto.get_by_role(
+                    "button",
+                    name="Atualizar",
+                    exact=True
+                ),
+                contexto.get_by_role(
+                    "link",
+                    name="Atualizar",
+                    exact=True
+                )
+            ]
+
+            for localizador in candidatos:
+                try:
+                    quantidade = localizador.count()
+                except Exception:
+                    continue
+
+                for indice in range(quantidade):
+                    elemento = localizador.nth(indice)
+
+                    try:
+                        if (
+                            elemento.is_visible()
+                            and elemento.is_enabled()
+                        ):
+                            return elemento
+
+                    except Exception:
+                        continue
+
+            inputs = contexto.locator(
+                "input[type='submit'], "
+                "input[type='button']"
+            )
+
+            try:
+                quantidade_inputs = inputs.count()
+            except Exception:
+                quantidade_inputs = 0
+
+            for indice in range(quantidade_inputs):
+                elemento = inputs.nth(indice)
+
+                try:
+                    if (
+                        not elemento.is_visible()
+                        or not elemento.is_enabled()
+                    ):
+                        continue
+
+                    valor = (
+                        elemento.get_attribute("value")
+                        or ""
+                    )
+
+                    if (
+                        self._normalizar_texto(valor)
+                        == self._normalizar_texto(
+                            "Atualizar"
+                        )
+                    ):
+                        return elemento
+
+                except Exception:
+                    continue
+
+        raise RuntimeError(
+            "Não foi possível localizar o botão Atualizar "
+            "na tela Consultar Exportações DBF."
+        )
+
+
+    def baixar_exportacao_dbf(
+        self,
+        numero_solicitacao: str,
+        caminho_destino: str | Path
+    ) -> dict[str, object]:
+        """
+        Baixa o ZIP associado ao número exato da solicitação.
+
+        Pré-condições:
+        - o navegador foi aberto com downloads permitidos;
+        - a tela Consultar Exportações DBF está aberta;
+        - a solicitação está concluída;
+        - o link de download está disponível.
+
+        O arquivo é salvo no caminho temporário informado.
+        A validação do ZIP e a nomenclatura final pertencem ao
+        serviço local de arquivos.
+        """
+
+        self._garantir_tela_consulta_exportacoes()
+
+        numero_solicitacao = (
+            self._validar_numero_solicitacao(
+                numero_solicitacao
+            )
+        )
+
+        resultado = self._ler_solicitacao_na_tabela(
+            numero_solicitacao
+        )
+
+        if not resultado["encontrada"]:
+            raise RuntimeError(
+                "A solicitação não foi localizada na tabela: "
+                f"{numero_solicitacao}."
+            )
+
+        if not resultado["processamento_concluido"]:
+            raise RuntimeError(
+                "A solicitação ainda não está concluída: "
+                f"{numero_solicitacao}."
+            )
+
+        if not resultado["link_disponivel"]:
+            raise RuntimeError(
+                "O link de download ainda não está disponível: "
+                f"{numero_solicitacao}."
+            )
+
+        link = (
+            self._localizar_link_download_solicitacao(
+                numero_solicitacao
+            )
+        )
+
+        caminho_destino = Path(
+            caminho_destino
+        )
+        caminho_destino.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        if caminho_destino.exists():
+            raise FileExistsError(
+                "O arquivo temporário já existe e não será "
+                f"sobrescrito: {caminho_destino}"
+            )
+
+        try:
+            with self.pagina.expect_download(
+                timeout=(
+                    self.TEMPO_LIMITE_DOWNLOAD_SEGUNDOS
+                    * 1000
+                )
+            ) as evento_download:
+                self._clicar_elemento_resiliente(
+                    elemento=link,
+                    descricao=(
+                        "Baixar arquivo DBF da solicitação "
+                        f"{numero_solicitacao}"
+                    )
+                )
+
+            download = evento_download.value
+
+            falha = download.failure()
+
+            if falha:
+                raise RuntimeError(
+                    "O navegador informou falha no download: "
+                    f"{falha}"
+                )
+
+            nome_sugerido = (
+                download.suggested_filename
+                or ""
+            )
+
+            download.save_as(
+                str(caminho_destino)
+            )
+
+        except Exception:
+            if caminho_destino.exists():
+                caminho_destino.unlink()
+            raise
+
+        if (
+            not caminho_destino.exists()
+            or caminho_destino.stat().st_size <= 0
+        ):
+            raise RuntimeError(
+                "O download terminou sem produzir "
+                "um arquivo válido."
+            )
+
+        return {
+            "numero_solicitacao": numero_solicitacao,
+            "caminho_temporario": caminho_destino,
+            "nome_sugerido": nome_sugerido,
+            "tamanho_bytes":
+                caminho_destino.stat().st_size,
+            "download_concluido": True,
+            "dados_de_pacientes_lidos": False
+        }
+
+    def _localizar_link_download_solicitacao(
+        self,
+        numero_solicitacao: str
+    ) -> Locator:
+        """
+        Localiza o link da linha cujo número corresponde
+        exatamente à solicitação informada.
+        """
+
+        tabela_info = (
+            self._localizar_tabela_exportacoes()
+        )
+
+        if tabela_info is None:
+            raise RuntimeError(
+                "A tabela de exportações DBF "
+                "não foi localizada."
+            )
+
+        tabela = tabela_info["tabela"]
+        indices = tabela_info["indices"]
+        indice_numero = indices["numero"]
+        indice_link = indices.get("link")
+
+        if indice_link is None:
+            raise RuntimeError(
+                "A coluna Link não foi localizada na tabela."
+            )
+
+        linhas = tabela.locator("tr")
+
+        for indice_linha in range(linhas.count()):
+            linha = linhas.nth(indice_linha)
+
+            try:
+                if not linha.is_visible():
+                    continue
+
+                celulas = linha.locator("th, td")
+
+                if (
+                    indice_numero >= celulas.count()
+                    or indice_link >= celulas.count()
+                ):
+                    continue
+
+                texto_numero = (
+                    celulas.nth(
+                        indice_numero
+                    ).inner_text().strip()
+                )
+                numero_linha = re.sub(
+                    r"\D",
+                    "",
+                    texto_numero
+                )
+
+                if numero_linha != numero_solicitacao:
+                    continue
+
+                links = celulas.nth(
+                    indice_link
+                ).locator("a")
+
+                for indice_atual in range(
+                    links.count()
+                ):
+                    link = links.nth(
+                        indice_atual
+                    )
+
+                    if not link.is_visible():
+                        continue
+
+                    texto = (
+                        link.inner_text().strip()
+                    )
+
+                    if (
+                        self._normalizar_texto(
+                            self.TEXTO_LINK_DOWNLOAD
+                        )
+                        in self._normalizar_texto(
+                            texto
+                        )
+                    ):
+                        return link
+
+            except Exception:
+                continue
+
+        raise RuntimeError(
+            "O link de download não foi localizado "
+            "na linha da solicitação "
+            f"{numero_solicitacao}."
+        )
+
+    def _validar_numero_solicitacao(
+        self,
+        numero: str
+    ) -> str:
+        numero = str(numero).strip()
+
+        if not numero.isdigit():
+            raise ValueError(
+                f"Número de solicitação inválido: {numero!r}."
+            )
+
+        return numero
+
+    def _ler_solicitacao_na_tabela(
+        self,
+        numero: str
+    ) -> dict[str, object]:
+        """
+        Localiza a linha pelo número exato da solicitação.
+
+        A tabela contém somente metadados da exportação:
+        número, quantidade, status e link.
+        """
+
+        tabela_info = self._localizar_tabela_exportacoes()
+
+        if tabela_info is None:
+            raise RuntimeError(
+                "A tabela de exportações DBF não foi localizada."
+            )
+
+        tabela = tabela_info["tabela"]
+        indices = tabela_info["indices"]
+        linhas = tabela.locator("tr")
+
+        for indice_linha in range(linhas.count()):
+            linha = linhas.nth(indice_linha)
+
+            try:
+                if not linha.is_visible():
+                    continue
+
+                celulas = linha.locator("th, td")
+
+                if celulas.count() == 0:
+                    continue
+
+                textos = [
+                    celulas.nth(indice).inner_text().strip()
+                    for indice in range(celulas.count())
+                ]
+
+                indice_numero = indices["numero"]
+
+                if indice_numero >= len(textos):
+                    continue
+
+                numero_linha = re.sub(
+                    r"\D",
+                    "",
+                    textos[indice_numero]
+                )
+
+                if numero_linha != numero:
+                    continue
+
+                quantidade = self._texto_celula(
+                    textos,
+                    indices.get("quantidade")
+                )
+                status = self._texto_celula(
+                    textos,
+                    indices.get("status")
+                )
+                texto_link = self._texto_celula(
+                    textos,
+                    indices.get("link")
+                )
+
+                link_disponivel = False
+
+                indice_link = indices.get("link")
+
+                if (
+                    indice_link is not None
+                    and indice_link < celulas.count()
+                ):
+                    celula_link = celulas.nth(indice_link)
+                    links = celula_link.locator("a")
+
+                    for indice_link_atual in range(
+                        links.count()
+                    ):
+                        link = links.nth(indice_link_atual)
+
+                        try:
+                            if not link.is_visible():
+                                continue
+
+                            texto_atual = (
+                                link.inner_text().strip()
+                            )
+
+                            if (
+                                self._normalizar_texto(
+                                    self.TEXTO_LINK_DOWNLOAD
+                                )
+                                in self._normalizar_texto(
+                                    texto_atual
+                                )
+                            ):
+                                link_disponivel = True
+                                texto_link = texto_atual
+                                break
+
+                        except Exception:
+                            continue
+
+                processamento_concluido = (
+                    self._normalizar_texto(
+                        self.TEXTO_STATUS_CONCLUIDO
+                    )
+                    in self._normalizar_texto(status)
+                )
+
+                return {
+                    "numero_solicitacao": numero,
+                    "encontrada": True,
+                    "quantidade_registros": quantidade,
+                    "status": status,
+                    "processamento_concluido":
+                        processamento_concluido,
+                    "texto_link": texto_link,
+                    "link_disponivel": link_disponivel
+                }
+
+            except Exception:
+                continue
+
+        return {
+            "numero_solicitacao": numero,
+            "encontrada": False,
+            "quantidade_registros": "",
+            "status": "Solicitação ainda não localizada",
+            "processamento_concluido": False,
+            "texto_link": "",
+            "link_disponivel": False
+        }
+
+    def _texto_celula(
+        self,
+        textos: list[str],
+        indice: int | None
+    ) -> str:
+        if indice is None or indice >= len(textos):
+            return ""
+
+        return textos[indice].strip()
+
+    def _localizar_tabela_exportacoes(
+        self
+    ) -> dict[str, object] | None:
+        """
+        Localiza a tabela pelos títulos das colunas, sem depender
+        de IDs internos do JSF.
+        """
+
+        alvo_numero = self._normalizar_texto(
+            self.TEXTO_COLUNA_NUMERO
+        )
+        alvo_status = self._normalizar_texto(
+            self.TEXTO_COLUNA_STATUS
+        )
+
+        for contexto in self._obter_contextos():
+            tabelas = contexto.locator("table")
+
+            try:
+                quantidade_tabelas = tabelas.count()
+            except Exception:
+                continue
+
+            for indice_tabela in range(quantidade_tabelas):
+                tabela = tabelas.nth(indice_tabela)
+
+                try:
+                    if not tabela.is_visible():
+                        continue
+
+                    linhas = tabela.locator("tr")
+
+                    for indice_linha in range(
+                        min(linhas.count(), 5)
+                    ):
+                        linha = linhas.nth(indice_linha)
+                        celulas = linha.locator("th, td")
+
+                        if celulas.count() == 0:
+                            continue
+
+                        cabecalhos = [
+                            celulas.nth(indice)
+                            .inner_text()
+                            .strip()
+                            for indice in range(
+                                celulas.count()
+                            )
+                        ]
+
+                        normalizados = [
+                            self._normalizar_texto(texto)
+                            for texto in cabecalhos
+                        ]
+
+                        if (
+                            not any(
+                                alvo_numero in texto
+                                for texto in normalizados
+                            )
+                            or not any(
+                                alvo_status == texto
+                                or alvo_status in texto
+                                for texto in normalizados
+                            )
+                        ):
+                            continue
+
+                        return {
+                            "tabela": tabela,
+                            "indices": {
+                                "numero":
+                                    self._indice_cabecalho(
+                                        normalizados,
+                                        self.TEXTO_COLUNA_NUMERO
+                                    ),
+                                "quantidade":
+                                    self._indice_cabecalho(
+                                        normalizados,
+                                        self.TEXTO_COLUNA_QUANTIDADE,
+                                        obrigatorio=False
+                                    ),
+                                "status":
+                                    self._indice_cabecalho(
+                                        normalizados,
+                                        self.TEXTO_COLUNA_STATUS
+                                    ),
+                                "link":
+                                    self._indice_cabecalho(
+                                        normalizados,
+                                        self.TEXTO_COLUNA_LINK,
+                                        obrigatorio=False
+                                    )
+                            }
+                        }
+
+                except Exception:
+                    continue
+
+        return None
+
+    def _indice_cabecalho(
+        self,
+        cabecalhos_normalizados: list[str],
+        texto_esperado: str,
+        obrigatorio: bool = True
+    ) -> int | None:
+        alvo = self._normalizar_texto(
+            texto_esperado
+        )
+
+        for indice, texto in enumerate(
+            cabecalhos_normalizados
+        ):
+            if alvo == texto or alvo in texto:
+                return indice
+
+        if obrigatorio:
+            raise RuntimeError(
+                f"A coluna {texto_esperado!r} "
+                "não foi localizada na tabela."
+            )
+
+        return None
+
+    def _aguardar_tela_consulta_exportacoes(self):
+        limite = (
+            monotonic()
+            + self.TEMPO_CARREGAR_TABELA_SEGUNDOS
+        )
+
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+
+            if self._tela_consulta_exportacoes_esta_aberta():
+                return
+
+            self.pagina.wait_for_timeout(
+                self.INTERVALO_VERIFICACAO_MS
+            )
+
+        raise RuntimeError(
+            "A tela Consultar Exportações DBF não carregou "
+            "dentro do tempo limite."
+        )
+
+    def _garantir_tela_consulta_exportacoes(self):
+        if not self._tela_consulta_exportacoes_esta_aberta():
+            raise RuntimeError(
+                "A tela Consultar Exportações DBF "
+                "ainda não está aberta."
+            )
+
+    def _tela_consulta_exportacoes_esta_aberta(
+        self
+    ) -> bool:
+        return self._localizar_tabela_exportacoes() is not None
 
     def preencher_periodo_e_datas_exportacao(
         self,
