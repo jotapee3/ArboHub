@@ -242,6 +242,90 @@ class ExportacaoDbfService:
             )
             conexao.commit()
 
+    def obter_lote_parcial_do_dia(
+        self,
+        data_referencia: date | None = None
+    ) -> dict | None:
+        """
+        Retorna o lote parcial mais recente do dia.
+
+        Um lote parcial possui exatamente uma das solicitações:
+        Dengue ou Chikungunya. Isso permite retomar uma execução
+        interrompida sem criar novamente a solicitação que já foi
+        capturada e salva.
+
+        Lotes completos não são retornados por este método.
+        """
+
+        data_referencia = (
+            data_referencia
+            or date.today()
+        )
+
+        with self.conectar() as conexao:
+            lote = conexao.execute(
+                """
+                    SELECT
+                        lote.lote_id,
+                        lote.data_referencia,
+                        lote.criado_em,
+                        lote.atualizado_em
+                    FROM exportacao_dbf_lote AS lote
+                    WHERE
+                        lote.data_referencia = ?
+                        AND (
+                            SELECT COUNT(
+                                DISTINCT solicitacao.agravo
+                            )
+                            FROM exportacao_dbf_solicitacao
+                                AS solicitacao
+                            WHERE
+                                solicitacao.lote_id =
+                                    lote.lote_id
+                                AND solicitacao.agravo IN (?, ?)
+                        ) = 1
+                    ORDER BY
+                        lote.criado_em DESC,
+                        lote.rowid DESC
+                    LIMIT 1
+                """,
+                (
+                    data_referencia.isoformat(),
+                    self.AGRAVO_DENGUE,
+                    self.AGRAVO_CHIKUNGUNYA
+                )
+            ).fetchone()
+
+            if lote is None:
+                return None
+
+            solicitacoes = conexao.execute(
+                """
+                    SELECT *
+                    FROM exportacao_dbf_solicitacao
+                    WHERE lote_id = ?
+                """,
+                (lote["lote_id"],)
+            ).fetchall()
+
+        por_agravo = {
+            linha["agravo"]: dict(linha)
+            for linha in solicitacoes
+        }
+
+        return {
+            "lote_id": lote["lote_id"],
+            "data_referencia": lote["data_referencia"],
+            "criado_em": lote["criado_em"],
+            "atualizado_em": lote["atualizado_em"],
+            "dengue": por_agravo.get(
+                self.AGRAVO_DENGUE
+            ),
+            "chikungunya": por_agravo.get(
+                self.AGRAVO_CHIKUNGUNYA
+            )
+        }
+
     def obter_lote_completo_do_dia(
         self,
         data_referencia: date | None = None
