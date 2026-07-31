@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from time import monotonic
+from typing import Callable
 
 from playwright.sync_api import (
     Browser,
@@ -73,13 +74,17 @@ class NavegadorSinan:
 
     def aguardar_login_manual(
         self,
-        tempo_limite_segundos: int = 600
+        tempo_limite_segundos: int = 600,
+        cancelado: Callable[[], bool] | None = None
     ) -> bool:
         """
         Aguarda o usuário realizar o login manualmente.
 
         O método verifica somente a URL e a existência do menu
         principal. Não lê usuário, senha ou registros de pacientes.
+
+        O callback opcional ``cancelado`` permite que a interface
+        interrompa a espera pelo login de forma responsiva.
         """
 
         if self.pagina is None:
@@ -93,6 +98,14 @@ class NavegadorSinan:
         )
 
         while monotonic() < limite:
+            if (
+                cancelado is not None
+                and cancelado()
+            ):
+                raise RuntimeError(
+                    "A espera pelo login foi cancelada."
+                )
+
             if self.pagina.is_closed():
                 raise RuntimeError(
                     "A janela do navegador foi fechada."
@@ -101,7 +114,7 @@ class NavegadorSinan:
             if self.login_foi_concluido():
                 return True
 
-            self.pagina.wait_for_timeout(1000)
+            self.pagina.wait_for_timeout(250)
 
         raise TimeoutError(
             "O tempo para realizar o login foi encerrado."
@@ -113,18 +126,15 @@ class NavegadorSinan:
 
         url_atual = self.pagina.url.lower()
 
-        # O SINAN normalmente direciona para uma área protegida.
         if "/secured/" in url_atual:
             return True
 
-        # Verificação alternativa para a página inicial.
         if (
             "/login/" not in url_atual
             and "home.jsf" in url_atual
         ):
             return True
 
-        # Verificação visual sem coletar conteúdo de pacientes.
         try:
             menu_consulta = self.pagina.get_by_text(
                 "Consulta",
