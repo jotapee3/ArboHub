@@ -138,7 +138,7 @@ class ConfirmacaoConferenciaDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             icone,
-            text="✓",
+            text="🧑‍💻​",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=18,

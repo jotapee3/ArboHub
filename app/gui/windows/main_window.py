@@ -24,7 +24,7 @@ class MainWindow(ctk.CTk):
 
         self.iconbitmap(caminho_icone)
 
-        self.geometry("1000x600")
+        self.geometry("1360x840")
         self.minsize(900, 550)
         self.configure(fg_color=Colors.BACKGROUND)
 
@@ -77,8 +77,8 @@ class MainWindow(ctk.CTk):
     def centralizar_janela(self):
         self.update_idletasks()
 
-        largura = 1000
-        altura = 600
+        largura = 1360
+        altura = 840
 
         largura_tela = self.winfo_screenwidth()
         altura_tela = self.winfo_screenheight()

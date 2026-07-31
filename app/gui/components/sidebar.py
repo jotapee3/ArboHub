@@ -287,7 +287,7 @@ class Sidebar(ctk.CTkFrame):
 
         versao = ctk.CTkLabel(
             rodape,
-            text="ArboHub v0.4",
+            text="ArboHub v0.5",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=10

@@ -1,12 +1,23 @@
-from datetime import datetime
+from datetime import date, datetime
+import os
+from pathlib import Path
+import subprocess
+import sys
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from app.gui.components.arbohub_dialog import (
+    mostrar_dialogo_arbohub,
+    solicitar_confirmacao_arbohub
+)
 from app.gui.components.confirmacao_conferencia_dialog import (
     solicitar_confirmacao_conferencia_nativa
 )
 from app.gui.themes.colors import Colors
+from app.services.atualizacao_bases_service import (
+    AtualizacaoBasesService
+)
 from app.services.checkpoint_service import CheckpointService
 from app.services.consulta_obitos_service import (
     ConsultaObitosService
@@ -65,34 +76,49 @@ class SinanPage(ctk.CTkFrame):
 
     ETAPAS_FLUXO_BASES = (
         (
-            "pasta",
-            "Pasta de destino",
-            "Escolher onde os arquivos serão armazenados."
-        ),
-        (
-            "acesso",
+            AtualizacaoBasesService.ETAPA_ACESSO,
             "Acesso ao SINAN",
-            "Abrir o sistema e realizar o login manual."
+            "Login manual quando solicitações ou downloads forem necessários."
         ),
         (
-            "selecao",
-            "Seleção das bases",
-            "Definir as bases e os períodos necessários."
+            AtualizacaoBasesService.ETAPA_SOLICITACOES,
+            "Solicitações DBF",
+            "Criar ou reutilizar as solicitações de Dengue e Chikungunya."
         ),
         (
-            "download",
+            AtualizacaoBasesService.ETAPA_PROCESSAMENTO,
+            "Processamento",
+            "Acompanhar os dois números até os links ficarem disponíveis."
+        ),
+        (
+            AtualizacaoBasesService.ETAPA_DOWNLOAD,
             "Download",
-            "Baixar os arquivos para a pasta selecionada."
+            "Baixar e validar os ZIPs pelas solicitações exatas."
         ),
         (
-            "validacao",
-            "Validação",
-            "Confirmar presença, formato e integridade dos arquivos."
+            AtualizacaoBasesService.ETAPA_HISTORICO,
+            "Histórico",
+            "Arquivar os ZIPs nas pastas anuais e mensais."
         ),
         (
-            "conclusao",
-            "Conclusão",
-            "Registrar a atualização diária como concluída."
+            AtualizacaoBasesService.ETAPA_EXTRACAO,
+            "Extração segura",
+            "Confirmar DENGON e CHIKON sem interpretar registros."
+        ),
+        (
+            AtualizacaoBasesService.ETAPA_PASTAS_TESTE,
+            "Pastas de teste",
+            "Atualizar Teste AB1 e Teste AB2 com backup e SHA-256."
+        ),
+        (
+            AtualizacaoBasesService.ETAPA_BANCOS_ATUAIS,
+            "Bancos atuais",
+            "Atualizar dengue_AAAA.dbf e chiku_AAAA.dbf com restauração."
+        ),
+        (
+            AtualizacaoBasesService.ETAPA_FINALIZACAO,
+            "Finalização",
+            "Registrar a rotina diária somente após sucesso completo."
         )
     )
 
@@ -109,9 +135,15 @@ class SinanPage(ctk.CTkFrame):
         self.consulta_obitos_service = ConsultaObitosService(
             checkpoint_service=self.checkpoint_service
         )
+        self.atualizacao_bases_service = (
+            AtualizacaoBasesService(
+                checkpoint_service=self.checkpoint_service
+            )
+        )
 
         self.layout_checkpoints_vertical = None
         self.layout_botoes_bases = None
+        self.layout_destinos_bases_vertical = None
         self.layout_acoes_consulta_vertical = None
         self.labels_relatorios_wrap = []
         self._redimensionamento_agendado = None
@@ -121,6 +153,15 @@ class SinanPage(ctk.CTkFrame):
         self.etapa_fluxo_atual = None
         self.estado_fluxo_atual = "aguardando"
         self.mensagem_etapa_fluxo = None
+
+        self.etapa_bases_atual = None
+        self.estado_bases_atual = "aguardando"
+        self.mensagem_bases_atual = None
+        self.estados_etapas_bases = {
+            etapa[0]: "aguardando"
+            for etapa in self.ETAPAS_FLUXO_BASES
+        }
+        self.mensagens_etapas_bases = {}
 
         self.componentes_linha_tempo = {}
         self.componentes_linha_tempo_bases = {}
@@ -153,6 +194,11 @@ class SinanPage(ctk.CTkFrame):
         )
 
         self._agendar_processamento_eventos()
+
+        self.after(
+            250,
+            self.atualizar_estado_bases
+        )
 
 
     # ------------------------------------------------------------------
@@ -401,11 +447,10 @@ class SinanPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             indicador,
-            text="✓",
+            text="✅",
             font=ctk.CTkFont(
-                family="Segoe UI",
-                size=17,
-                weight="bold"
+                family="Segoe UI Emoji",
+                size=18
             ),
             text_color=Colors.PRIMARY
         ).place(
@@ -1421,7 +1466,7 @@ class SinanPage(ctk.CTkFrame):
                 "cor_detalhe": Colors.PRIMARY
             },
             "concluido": {
-                "simbolo": "✓",
+                "simbolo": "✔",
                 "fundo": Colors.SUCCESS,
                 "borda": Colors.SUCCESS,
                 "cor_simbolo": Colors.TEXT_PRIMARY,
@@ -1897,7 +1942,7 @@ class SinanPage(ctk.CTkFrame):
             texto_resultado = "◉ Houve alteração"
             cor_resultado = Colors.PRIMARY
         elif resultado == "manteve_igual":
-            texto_resultado = "✓ Manteve igual"
+            texto_resultado = "✔️ Manteve igual"
             cor_resultado = Colors.SUCCESS
         else:
             texto_resultado = "○ Resultado não informado"
@@ -2029,41 +2074,110 @@ class SinanPage(ctk.CTkFrame):
 
     def criar_aba_bases(self):
         self.criar_painel_status()
+        self.criar_titulo_destinos_bases()
+        self.criar_cards_destinos_bases()
         self.criar_painel_progresso()
         self.criar_painel_operacoes()
 
     def criar_painel_status(self):
+        """
+        Cria um resumo visual equivalente ao painel principal da
+        subaba Consulta.
+        """
+
         painel = self._criar_painel(
             self.tab_bases,
             linha=0,
-            pady=(30, 0)
+            pady=(30, 18)
         )
         painel.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
+        cabecalho = ctk.CTkFrame(
             painel,
-            text="Preparação da atualização",
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7
+        )
+        cabecalho.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=12,
+            pady=(12, 0)
+        )
+        cabecalho.grid_columnconfigure(1, weight=1)
+
+        indicador = ctk.CTkFrame(
+            cabecalho,
+            width=38,
+            height=38,
+            fg_color=Colors.BUTTON,
+            corner_radius=7
+        )
+        indicador.grid(
+            row=0,
+            column=0,
+            rowspan=2,
+            padx=(12, 12),
+            pady=12
+        )
+        indicador.grid_propagate(False)
+
+        ctk.CTkLabel(
+            indicador,
+            text="📂",
+            font=ctk.CTkFont(
+                family="Segoe UI Emoji",
+                size=18
+            ),
+            text_color=Colors.PRIMARY
+        ).place(
+            relx=0.5,
+            rely=0.5,
+            anchor="center"
+        )
+
+        ctk.CTkLabel(
+            cabecalho,
+            text="RESUMO DA ROTINA",
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=17,
+                size=10,
+                weight="bold"
+            ),
+            text_color=Colors.PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=1,
+            sticky="sw",
+            padx=(0, 14),
+            pady=(11, 1)
+        )
+
+        ctk.CTkLabel(
+            cabecalho,
+            text="Atualização das bases",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=18,
                 weight="bold"
             ),
             text_color=Colors.TEXT_PRIMARY,
             anchor="w"
         ).grid(
-            row=0,
-            column=0,
-            sticky="ew",
-            padx=22,
-            pady=(20, 4)
+            row=1,
+            column=1,
+            sticky="nw",
+            padx=(0, 14),
+            pady=(0, 11)
         )
 
         self.label_status_base = ctk.CTkLabel(
             painel,
-            text="Nenhuma pasta de destino selecionada",
+            text="Verificando a situação da rotina de hoje.",
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=13
+                size=12
             ),
             text_color=Colors.TEXT_SECONDARY,
             anchor="w",
@@ -2074,12 +2188,123 @@ class SinanPage(ctk.CTkFrame):
             row=1,
             column=0,
             sticky="ew",
-            padx=22
+            padx=22,
+            pady=(16, 12)
         )
 
-        self.label_checkpoint_bases = ctk.CTkLabel(
+        cabecalho_progresso = ctk.CTkFrame(
             painel,
-            text="○ Atualização das bases pendente",
+            fg_color="transparent"
+        )
+        cabecalho_progresso.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=22
+        )
+        cabecalho_progresso.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            cabecalho_progresso,
+            text="Progresso da atualização",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w"
+        )
+
+        self.label_progresso_bases = ctk.CTkLabel(
+            cabecalho_progresso,
+            text=(
+                f"0 de {len(self.ETAPAS_FLUXO_BASES)} "
+                "etapas concluídas"
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="e"
+        )
+        self.label_progresso_bases.grid(
+            row=0,
+            column=1,
+            sticky="e"
+        )
+
+        self.barra_resumo_bases = ctk.CTkProgressBar(
+            painel,
+            height=8,
+            corner_radius=4,
+            fg_color=Colors.BACKGROUND,
+            progress_color=Colors.PRIMARY
+        )
+        self.barra_resumo_bases.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=22,
+            pady=(8, 16)
+        )
+        self.barra_resumo_bases.set(0)
+
+        indicadores = ctk.CTkFrame(
+            painel,
+            fg_color="transparent"
+        )
+        indicadores.grid(
+            row=4,
+            column=0,
+            sticky="ew",
+            padx=22
+        )
+        indicadores.grid_columnconfigure(
+            (0, 1),
+            weight=1,
+            uniform="resumo_bases"
+        )
+
+        bloco_solicitacoes = ctk.CTkFrame(
+            indicadores,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=6
+        )
+        bloco_solicitacoes.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(0, 6)
+        )
+
+        ctk.CTkLabel(
+            bloco_solicitacoes,
+            text="SOLICITAÇÕES DO DIA",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=9,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        ).pack(
+            fill="x",
+            padx=12,
+            pady=(10, 3)
+        )
+
+        self.label_solicitacoes_bases = ctk.CTkLabel(
+            bloco_solicitacoes,
+            text="○ Solicitações pendentes",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=12,
@@ -2088,61 +2313,55 @@ class SinanPage(ctk.CTkFrame):
             text_color=Colors.TEXT_MUTED,
             anchor="w"
         )
-        self.label_checkpoint_bases.grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            padx=22,
-            pady=(5, 0)
+        self.label_solicitacoes_bases.pack(
+            fill="x",
+            padx=12,
+            pady=(0, 10)
         )
 
-        ctk.CTkFrame(
-            painel,
-            height=1,
-            fg_color=Colors.DIVIDER
-        ).grid(
-            row=3,
-            column=0,
-            sticky="ew",
-            padx=22,
-            pady=18
+        bloco_arquivos = ctk.CTkFrame(
+            indicadores,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=6
+        )
+        bloco_arquivos.grid(
+            row=0,
+            column=1,
+            sticky="nsew",
+            padx=(6, 0)
         )
 
         ctk.CTkLabel(
-            painel,
-            text="Pasta de destino",
+            bloco_arquivos,
+            text="ARQUIVOS DO DIA",
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=13,
+                size=9,
                 weight="bold"
             ),
-            text_color=Colors.TEXT_PRIMARY,
+            text_color=Colors.TEXT_MUTED,
             anchor="w"
-        ).grid(
-            row=4,
-            column=0,
-            sticky="ew",
-            padx=22
+        ).pack(
+            fill="x",
+            padx=12,
+            pady=(10, 3)
         )
 
-        self.label_pasta = ctk.CTkLabel(
-            painel,
-            text="📁 Nenhuma pasta selecionada",
+        self.label_arquivos_bases = ctk.CTkLabel(
+            bloco_arquivos,
+            text="○ Arquivos pendentes",
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=12
+                size=12,
+                weight="bold"
             ),
             text_color=Colors.TEXT_MUTED,
-            anchor="w",
-            justify="left",
-            wraplength=620
+            anchor="w"
         )
-        self.label_pasta.grid(
-            row=5,
-            column=0,
-            sticky="ew",
-            padx=22,
-            pady=(5, 16)
+        self.label_arquivos_bases.pack(
+            fill="x",
+            padx=12,
+            pady=(0, 10)
         )
 
         botoes = ctk.CTkFrame(
@@ -2150,76 +2369,870 @@ class SinanPage(ctk.CTkFrame):
             fg_color="transparent"
         )
         self.container_botoes_bases = botoes
-
         botoes.grid(
-            row=6,
+            row=5,
             column=0,
             sticky="ew",
             padx=22,
-            pady=(0, 22)
-        )
-
-        self.botao_selecionar_pasta = self._criar_botao(
-            botoes,
-            "📁 Selecionar pasta",
-            self.selecionar_pasta,
-            160
-        )
-
-        self.botao_remover_pasta = self._criar_botao(
-            botoes,
-            "✕ Remover seleção",
-            self.remover_pasta,
-            160,
-            transparente=True,
-            estado="disabled"
+            pady=(16, 8)
         )
 
         self.botao_baixar = ctk.CTkButton(
             botoes,
-            text="Automação em preparação",
+            text="▶ Iniciar rotina",
             command=self.iniciar_download,
-            width=175,
+            width=180,
             height=38,
-            corner_radius=6,
-            state="disabled",
-            fg_color=Colors.BUTTON,
+            corner_radius=7,
+            fg_color=Colors.PRIMARY,
             hover_color=Colors.BUTTON_HOVER,
-            border_width=1,
-            border_color=Colors.BORDER,
-            text_color=Colors.TEXT_MUTED,
+            text_color=Colors.TEXT_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=12,
+                size=13,
                 weight="bold"
             )
         )
 
-        self.botao_concluir_bases = self._criar_botao(
+        self.botao_cancelar_bases = self._criar_botao(
             botoes,
-            "✓ Concluir manualmente",
-            self.concluir_atualizacao_bases,
-            175,
+            "■ Cancelar",
+            self.cancelar_atualizacao_bases,
+            145,
+            transparente=True,
             estado="disabled"
         )
 
+        self.botao_atualizar_estado_bases = self._criar_botao(
+            botoes,
+            "↻ Atualizar estado",
+            self.atualizar_estado_bases,
+            165,
+            transparente=True
+        )
+
         self.botoes_bases = [
-            self.botao_selecionar_pasta,
-            self.botao_remover_pasta,
             self.botao_baixar,
-            self.botao_concluir_bases
+            self.botao_cancelar_bases,
+            self.botao_atualizar_estado_bases
         ]
+
+        self.label_checkpoint_bases = ctk.CTkLabel(
+            painel,
+            text="○ Atualização das bases pendente",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        )
+        self.label_checkpoint_bases.grid(
+            row=6,
+            column=0,
+            sticky="ew",
+            padx=22,
+            pady=(0, 18)
+        )
 
         botoes.bind(
             "<Configure>",
             self.ajustar_layout_botoes_bases
         )
 
+    def criar_titulo_destinos_bases(self):
+        cabecalho = ctk.CTkFrame(
+            self.tab_bases,
+            fg_color="transparent"
+        )
+        cabecalho.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=8,
+            pady=(4, 10)
+        )
+        cabecalho.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            cabecalho,
+            text="Destinos da atualização",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=16,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="ew"
+        )
+
+        self.label_descricao_destinos_bases = ctk.CTkLabel(
+            cabecalho,
+            text=(
+                "A mesma dupla validada é distribuída para "
+                "o histórico, as pastas de teste e os bancos atuais."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left"
+        )
+        self.label_descricao_destinos_bases.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            pady=(3, 0)
+        )
+
+    def criar_cards_destinos_bases(self):
+        container = ctk.CTkFrame(
+            self.tab_bases,
+            fg_color="transparent"
+        )
+        self.container_destinos_bases = container
+        container.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=6
+        )
+
+        self.card_destino_historico = (
+            self._criar_card_destino_bases(
+                master=container,
+                coluna=0,
+                icone="🗂️",
+                titulo="Histórico",
+                descricao=(
+                    "ZIPs separados por ano, agravo e mês em "
+                    "Documents\\SINAN\\Historico."
+                ),
+                atalhos=(
+                    (
+                        "📂 Dengue",
+                        "historico_dengue"
+                    ),
+                    (
+                        "📂 Chikungunya",
+                        "historico_chikungunya"
+                    )
+                )
+            )
+        )
+
+        self.card_destino_testes = (
+            self._criar_card_destino_bases(
+                master=container,
+                coluna=1,
+                icone="🧪",
+                titulo="Pastas de teste",
+                descricao=(
+                    "DBFs instalados em Teste AB1 e Teste AB2 "
+                    "com backup e validação SHA-256."
+                ),
+                atalhos=(
+                    (
+                        "📂 Teste AB1",
+                        "teste_ab1"
+                    ),
+                    (
+                        "📂 Teste AB2",
+                        "teste_ab2"
+                    )
+                )
+            )
+        )
+
+        self.card_destino_atuais = (
+            self._criar_card_destino_bases(
+                master=container,
+                coluna=2,
+                icone="🗃️",
+                titulo="Bancos atuais",
+                descricao=(
+                    "dengue_AAAA.dbf e chiku_AAAA.dbf em "
+                    "Documents\\SINAN\\Bancos_Atuais."
+                ),
+                atalhos=(
+                    (
+                        "📂 Abrir Bancos_Atuais",
+                        "bancos_atuais"
+                    ),
+                )
+            )
+        )
+
+        self.cards_destinos_bases = [
+            self.card_destino_historico,
+            self.card_destino_testes,
+            self.card_destino_atuais
+        ]
+
+        container.bind(
+            "<Configure>",
+            self.ajustar_layout_destinos_bases
+        )
+
+    def _criar_card_destino_bases(
+        self,
+        master,
+        coluna: int,
+        icone: str,
+        titulo: str,
+        descricao: str,
+        atalhos: tuple[tuple[str, str], ...]
+    ) -> dict:
+        card = ctk.CTkFrame(
+            master,
+            fg_color=Colors.SURFACE,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        card.grid(
+            row=0,
+            column=coluna,
+            sticky="nsew",
+            padx=(
+                (0, 6)
+                if coluna == 0
+                else (
+                    (6, 0)
+                    if coluna == 2
+                    else 6
+                )
+            )
+        )
+        card.grid_columnconfigure(1, weight=1)
+
+        icone_frame = ctk.CTkFrame(
+            card,
+            width=44,
+            height=44,
+            fg_color=Colors.BUTTON,
+            corner_radius=9,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        icone_frame.grid(
+            row=0,
+            column=0,
+            rowspan=2,
+            padx=(16, 12),
+            pady=(16, 10)
+        )
+        icone_frame.grid_propagate(False)
+
+        ctk.CTkLabel(
+            icone_frame,
+            text=icone,
+            font=ctk.CTkFont(
+                family="Segoe UI Emoji",
+                size=21
+            ),
+            text_color=Colors.TEXT_PRIMARY
+        ).place(
+            relx=0.5,
+            rely=0.5,
+            anchor="center"
+        )
+
+        ctk.CTkLabel(
+            card,
+            text=titulo,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=15,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=1,
+            sticky="sw",
+            padx=(0, 16),
+            pady=(16, 1)
+        )
+
+        label_status = ctk.CTkLabel(
+            card,
+            text="○ Aguardando rotina",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        )
+        label_status.grid(
+            row=1,
+            column=1,
+            sticky="nw",
+            padx=(0, 16),
+            pady=(1, 10)
+        )
+
+        label_descricao = ctk.CTkLabel(
+            card,
+            text=descricao,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=245
+        )
+        label_descricao.grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=16,
+            pady=(2, 12)
+        )
+
+        separador = ctk.CTkFrame(
+            card,
+            height=1,
+            fg_color=Colors.DIVIDER
+        )
+        separador.grid(
+            row=3,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=16,
+            pady=(0, 11)
+        )
+
+        ctk.CTkLabel(
+            card,
+            text="ATALHOS",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=9,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        ).grid(
+            row=4,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=16,
+            pady=(0, 7)
+        )
+
+        container_atalhos = ctk.CTkFrame(
+            card,
+            fg_color="transparent"
+        )
+        container_atalhos.grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=16,
+            pady=(0, 16)
+        )
+
+        for indice in range(len(atalhos)):
+            container_atalhos.grid_columnconfigure(
+                indice,
+                weight=1,
+                uniform=f"atalhos_{coluna}"
+            )
+
+        botoes_atalhos = []
+
+        for indice, (
+            texto,
+            chave_pasta
+        ) in enumerate(atalhos):
+            botao = ctk.CTkButton(
+                container_atalhos,
+                text=texto,
+                command=(
+                    lambda chave=chave_pasta:
+                        self.abrir_pasta_destino_bases(
+                            chave
+                        )
+                ),
+                height=34,
+                corner_radius=7,
+                fg_color="transparent",
+                hover_color=Colors.SURFACE_HOVER,
+                border_width=1,
+                border_color=Colors.BORDER,
+                text_color=Colors.TEXT_SECONDARY,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=11,
+                    weight="bold"
+                )
+            )
+            botao.grid(
+                row=0,
+                column=indice,
+                sticky="ew",
+                padx=(
+                    (0, 5)
+                    if indice == 0
+                    and len(atalhos) > 1
+                    else (
+                        (5, 0)
+                        if indice == len(atalhos) - 1
+                        and len(atalhos) > 1
+                        else 0
+                    )
+                )
+            )
+            botoes_atalhos.append(botao)
+
+        return {
+            "frame": card,
+            "status": label_status,
+            "descricao": label_descricao,
+            "atalhos": botoes_atalhos
+        }
+
+    def _obter_pastas_destino_bases(
+        self
+    ) -> dict[str, Path]:
+        """
+        Resolve os atalhos usando o mesmo serviço responsável por
+        salvar os arquivos.
+
+        Dessa forma, quando os caminhos forem alterados no futuro,
+        os botões acompanharão automaticamente a configuração.
+        """
+
+        arquivos_service = (
+            self.atualizacao_bases_service
+            .rotina_service
+            .arquivos_service
+        )
+        hoje = date.today()
+
+        historico_dengue = (
+            arquivos_service.caminho_historico(
+                agravo=(
+                    arquivos_service.AGRAVO_DENGUE
+                ),
+                data_referencia=hoje
+            ).parent
+        )
+        historico_chikungunya = (
+            arquivos_service.caminho_historico(
+                agravo=(
+                    arquivos_service
+                    .AGRAVO_CHIKUNGUNYA
+                ),
+                data_referencia=hoje
+            ).parent
+        )
+
+        caminhos_testes = (
+            arquivos_service.caminhos_pastas_teste(
+                data_referencia=hoje
+            )
+        )
+        caminhos_atuais = (
+            arquivos_service.caminhos_bancos_atuais(
+                data_referencia=hoje
+            )
+        )
+
+        return {
+            "historico_dengue":
+                historico_dengue,
+            "historico_chikungunya":
+                historico_chikungunya,
+            "teste_ab1":
+                caminhos_testes[
+                    arquivos_service.AGRAVO_DENGUE
+                ].parent,
+            "teste_ab2":
+                caminhos_testes[
+                    arquivos_service
+                    .AGRAVO_CHIKUNGUNYA
+                ].parent,
+            "bancos_atuais":
+                caminhos_atuais[
+                    arquivos_service.AGRAVO_DENGUE
+                ].parent
+        }
+
+    def abrir_pasta_destino_bases(
+        self,
+        chave_pasta: str
+    ):
+        """
+        Abre a pasta solicitada no Explorador de Arquivos.
+
+        Nenhum arquivo é alterado por esta ação.
+        """
+
+        try:
+            pastas = self._obter_pastas_destino_bases()
+            pasta = pastas.get(chave_pasta)
+
+            if pasta is None:
+                raise KeyError(
+                    "Atalho de pasta desconhecido."
+                )
+
+            pasta = Path(pasta)
+
+            if not pasta.exists():
+                mostrar_dialogo_arbohub(
+                    master=self.winfo_toplevel(),
+                    titulo="Pasta ainda não disponível",
+                    mensagem=(
+                        "A pasta deste atalho ainda não existe:\n\n"
+                        f"{pasta}\n\n"
+                        "Ela será criada automaticamente quando "
+                        "a rotina correspondente for concluída."
+                    ),
+                    tipo="aviso",
+                    texto_botao="Entendi"
+                )
+                return
+
+            if not pasta.is_dir():
+                raise NotADirectoryError(
+                    f"O caminho não é uma pasta: {pasta}"
+                )
+
+            if os.name == "nt":
+                os.startfile(
+                    str(pasta)
+                )
+            elif sys.platform == "darwin":
+                subprocess.Popen(
+                    ["open", str(pasta)]
+                )
+            else:
+                subprocess.Popen(
+                    ["xdg-open", str(pasta)]
+                )
+
+            self.registrar_operacao(
+                f"Pasta aberta: {pasta}"
+            )
+
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Não foi possível abrir a pasta",
+                mensagem=(
+                    "O ArboHub não conseguiu abrir o destino.\n\n"
+                    f"{erro}"
+                ),
+                tipo="erro",
+                texto_botao="Fechar"
+            )
+
+    def ajustar_layout_destinos_bases(
+        self,
+        event=None
+    ):
+        if not hasattr(
+            self,
+            "container_destinos_bases"
+        ):
+            return
+
+        largura = (
+            event.width
+            if event is not None
+            else self.container_destinos_bases.winfo_width()
+        )
+
+        if largura <= 1:
+            return
+
+        vertical = largura < 920
+
+        if (
+            self.layout_destinos_bases_vertical == vertical
+            and event is not None
+        ):
+            return
+
+        if vertical:
+            for indice, card in enumerate(
+                self.cards_destinos_bases
+            ):
+                card["frame"].grid_configure(
+                    row=indice,
+                    column=0,
+                    sticky="ew",
+                    padx=0,
+                    pady=(
+                        (0, 10)
+                        if indice < 2
+                        else 0
+                    )
+                )
+
+            self.container_destinos_bases.grid_columnconfigure(
+                0,
+                weight=1
+            )
+            self.container_destinos_bases.grid_columnconfigure(
+                (1, 2),
+                weight=0
+            )
+        else:
+            self.container_destinos_bases.grid_columnconfigure(
+                (0, 1, 2),
+                weight=1,
+                uniform="destinos_bases"
+            )
+
+            for indice, card in enumerate(
+                self.cards_destinos_bases
+            ):
+                card["frame"].grid_configure(
+                    row=0,
+                    column=indice,
+                    sticky="nsew",
+                    padx=(
+                        (0, 6)
+                        if indice == 0
+                        else (
+                            (6, 0)
+                            if indice == 2
+                            else 6
+                        )
+                    ),
+                    pady=0
+                )
+
+        self.layout_destinos_bases_vertical = vertical
+
+        self.after(
+            20,
+            self._ajustar_wrap_cards_destinos_bases
+        )
+
+    def _ajustar_wrap_cards_destinos_bases(self):
+        if self._pagina_destruida:
+            return
+
+        if not hasattr(
+            self,
+            "cards_destinos_bases"
+        ):
+            return
+
+        for card in self.cards_destinos_bases:
+            largura = card["frame"].winfo_width()
+
+            if largura <= 1:
+                continue
+
+            card["descricao"].configure(
+                wraplength=max(
+                    largura - 36,
+                    180
+                )
+            )
+
+    def _aplicar_estado_card_destino_bases(
+        self,
+        card: dict,
+        estado: str,
+        mensagem: str | None = None
+    ):
+        apresentacao = {
+            "aguardando": (
+                "○ Aguardando rotina",
+                Colors.TEXT_MUTED
+            ),
+            "executando": (
+                "● Atualizando",
+                Colors.PRIMARY
+            ),
+            "concluido": (
+                "✔️ Atualizado",
+                Colors.SUCCESS
+            ),
+            "erro": (
+                "× Falha na atualização",
+                "#E06C75"
+            ),
+            "cancelado": (
+                "○ Atualização cancelada",
+                Colors.TEXT_MUTED
+            )
+        }
+
+        texto, cor = apresentacao.get(
+            estado,
+            apresentacao["aguardando"]
+        )
+
+        if mensagem and estado in {
+            "erro",
+            "cancelado"
+        }:
+            texto = mensagem
+
+        card["status"].configure(
+            text=texto,
+            text_color=cor
+        )
+
+    def _atualizar_resumo_bases_visual(
+        self,
+        estados: dict[str, str]
+    ):
+        total = len(self.ETAPAS_FLUXO_BASES)
+        concluidas = sum(
+            1
+            for estado in estados.values()
+            if estado == "concluido"
+        )
+
+        self.barra_resumo_bases.set(
+            concluidas / total
+        )
+        self.barra_resumo_bases.configure(
+            progress_color=(
+                Colors.SUCCESS
+                if concluidas == total
+                else Colors.PRIMARY
+            )
+        )
+        self.label_progresso_bases.configure(
+            text=(
+                f"{concluidas} de {total} "
+                "etapas concluídas"
+            )
+        )
+
+        estado_solicitacoes = estados.get(
+            AtualizacaoBasesService.ETAPA_SOLICITACOES,
+            "aguardando"
+        )
+
+        if estado_solicitacoes == "concluido":
+            self.label_solicitacoes_bases.configure(
+                text="✔️ Solicitações do dia prontas",
+                text_color=Colors.SUCCESS
+            )
+        elif estado_solicitacoes == "executando":
+            self.label_solicitacoes_bases.configure(
+                text="● Preparando solicitações",
+                text_color=Colors.PRIMARY
+            )
+        elif estado_solicitacoes == "erro":
+            self.label_solicitacoes_bases.configure(
+                text="× Falha nas solicitações",
+                text_color="#E06C75"
+            )
+        else:
+            self.label_solicitacoes_bases.configure(
+                text="○ Solicitações pendentes",
+                text_color=Colors.TEXT_MUTED
+            )
+
+        etapas_arquivos = (
+            AtualizacaoBasesService.ETAPA_DOWNLOAD,
+            AtualizacaoBasesService.ETAPA_HISTORICO,
+            AtualizacaoBasesService.ETAPA_EXTRACAO,
+            AtualizacaoBasesService.ETAPA_PASTAS_TESTE,
+            AtualizacaoBasesService.ETAPA_BANCOS_ATUAIS
+        )
+        estados_arquivos = [
+            estados.get(
+                etapa,
+                "aguardando"
+            )
+            for etapa in etapas_arquivos
+        ]
+
+        if all(
+            estado == "concluido"
+            for estado in estados_arquivos
+        ):
+            self.label_arquivos_bases.configure(
+                text="✔️ Arquivos atualizados",
+                text_color=Colors.SUCCESS
+            )
+        elif any(
+            estado == "erro"
+            for estado in estados_arquivos
+        ):
+            self.label_arquivos_bases.configure(
+                text="× Atualização incompleta",
+                text_color="#E06C75"
+            )
+        elif any(
+            estado == "executando"
+            for estado in estados_arquivos
+        ):
+            self.label_arquivos_bases.configure(
+                text="● Atualizando arquivos",
+                text_color=Colors.PRIMARY
+            )
+        else:
+            self.label_arquivos_bases.configure(
+                text="○ Arquivos pendentes",
+                text_color=Colors.TEXT_MUTED
+            )
+
+        self._aplicar_estado_card_destino_bases(
+            self.card_destino_historico,
+            estados.get(
+                AtualizacaoBasesService.ETAPA_HISTORICO,
+                "aguardando"
+            ),
+            self.mensagens_etapas_bases.get(
+                AtualizacaoBasesService.ETAPA_HISTORICO
+            )
+        )
+        self._aplicar_estado_card_destino_bases(
+            self.card_destino_testes,
+            estados.get(
+                AtualizacaoBasesService.ETAPA_PASTAS_TESTE,
+                "aguardando"
+            ),
+            self.mensagens_etapas_bases.get(
+                AtualizacaoBasesService.ETAPA_PASTAS_TESTE
+            )
+        )
+        self._aplicar_estado_card_destino_bases(
+            self.card_destino_atuais,
+            estados.get(
+                AtualizacaoBasesService.ETAPA_BANCOS_ATUAIS,
+                "aguardando"
+            ),
+            self.mensagens_etapas_bases.get(
+                AtualizacaoBasesService.ETAPA_BANCOS_ATUAIS
+            )
+        )
+
     def criar_painel_progresso(self):
         painel = self._criar_painel(
             self.tab_bases,
-            linha=1,
-            pady=(16, 0)
+            linha=3,
+            pady=(18, 0)
         )
         painel.grid_columnconfigure(0, weight=1)
 
@@ -2244,10 +3257,9 @@ class SinanPage(ctk.CTkFrame):
         self.label_descricao_bases = ctk.CTkLabel(
             painel,
             text=(
-                "A interface está preparada para acompanhar "
-                "o download real. A simulação de progresso foi "
-                "removida para não registrar uma atualização "
-                "que não aconteceu."
+                "A linha do tempo acompanha as etapas reais "
+                "da rotina. Solicitações e arquivos existentes "
+                "no dia são reutilizados para evitar duplicações."
             ),
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -2321,30 +3333,49 @@ class SinanPage(ctk.CTkFrame):
             for item in self.ETAPAS_FLUXO_BASES
         ]
 
-        if rotina["atualizacao_bases"]:
+        executando = (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        )
+
+        if (
+            rotina["atualizacao_bases"]
+            and not executando
+            and all(
+                estado == "aguardando"
+                for estado in (
+                    self.estados_etapas_bases.values()
+                )
+            )
+        ):
             estados = {
                 etapa: "concluido"
                 for etapa in etapas
             }
-
         else:
-            estados = {
-                etapa: "aguardando"
-                for etapa in etapas
-            }
-
-            if self.pasta_destino:
-                estados["pasta"] = "concluido"
+            estados = dict(
+                self.estados_etapas_bases
+            )
 
         for indice, etapa in enumerate(etapas):
+            mensagem = (
+                self.mensagens_etapas_bases.get(
+                    etapa
+                )
+            )
+
             self._aplicar_estado_item_linha_tempo(
                 componentes=(
                     self.componentes_linha_tempo_bases[
                         etapa
                     ]
                 ),
-                estado=estados[etapa],
-                indice=indice
+                estado=estados.get(
+                    etapa,
+                    "aguardando"
+                ),
+                indice=indice,
+                mensagem=mensagem
             )
 
         for etapa in etapas[:-1]:
@@ -2360,15 +3391,19 @@ class SinanPage(ctk.CTkFrame):
             conector.configure(
                 fg_color=(
                     Colors.SUCCESS
-                    if estados[etapa] == "concluido"
+                    if estados.get(etapa) == "concluido"
                     else Colors.BORDER
                 )
             )
 
+        self._atualizar_resumo_bases_visual(
+            estados
+        )
+
     def criar_painel_operacoes(self):
         painel = self._criar_painel(
             self.tab_bases,
-            linha=2,
+            linha=4,
             pady=(16, 20)
         )
 
@@ -2455,6 +3490,7 @@ class SinanPage(ctk.CTkFrame):
         self.ajustar_layout_checkpoints()
         self.ajustar_layout_acoes_consulta()
         self.ajustar_layout_botoes_bases()
+        self.ajustar_layout_destinos_bases()
         self.ajustar_layout_filtros_relatorios()
         self.ajustar_quebra_textos()
 
@@ -2734,12 +3770,12 @@ class SinanPage(ctk.CTkFrame):
         if largura <= 1:
             return
 
-        if largura < 470:
+        if largura < 520:
             colunas = 1
-        elif largura < 900:
+        elif largura < 850:
             colunas = 2
         else:
-            colunas = 4
+            colunas = 3
 
         if (
             self.layout_botoes_bases == colunas
@@ -2747,14 +3783,10 @@ class SinanPage(ctk.CTkFrame):
         ):
             return
 
-        for indice in range(4):
+        for indice in range(3):
             self.container_botoes_bases.grid_columnconfigure(
                 indice,
-                weight=(
-                    1
-                    if indice < colunas
-                    else 0
-                ),
+                weight=1,
                 uniform=(
                     "botoes_bases"
                     if indice < colunas
@@ -2775,18 +3807,27 @@ class SinanPage(ctk.CTkFrame):
                 column=coluna,
                 sticky="ew",
                 padx=(
-                    (0, 5)
-                    if coluna == 0 and colunas > 1
+                    0
+                    if colunas == 1
                     else (
-                        (5, 0)
-                        if coluna == colunas - 1
-                        else 5
+                        (0, 5)
+                        if coluna == 0
+                        else (
+                            (5, 0)
+                            if coluna == colunas - 1
+                            else 5
+                        )
                     )
                 ),
                 pady=(
                     (0, 5)
                     if linha == 0
-                    else (5, 0)
+                    and len(self.botoes_bases) > colunas
+                    else (
+                        (5, 0)
+                        if linha > 0
+                        else 0
+                    )
                 )
             )
 
@@ -2813,10 +3854,15 @@ class SinanPage(ctk.CTkFrame):
             self.label_descricao_linha_tempo
         ]
 
-        if hasattr(self, "label_descricao_bases"):
-            labels_principais.append(
-                self.label_descricao_bases
-            )
+        for nome in (
+            "label_status_base",
+            "label_descricao_bases",
+            "label_descricao_destinos_bases"
+        ):
+            if hasattr(self, nome):
+                labels_principais.append(
+                    getattr(self, nome)
+                )
 
         for label in labels_principais:
             aplicar_wrap(label, 50)
@@ -2832,32 +3878,18 @@ class SinanPage(ctk.CTkFrame):
                     160
                 )
 
+        if hasattr(
+            self,
+            "cards_destinos_bases"
+        ):
+            self._ajustar_wrap_cards_destinos_bases()
+
         if hasattr(self, "label_descricao_relatorios"):
             aplicar_wrap(
                 self.label_descricao_relatorios,
                 50
             )
             self._ajustar_wrap_relatorios()
-
-        if hasattr(self, "tab_bases"):
-            largura_bases = self.tab_bases.winfo_width()
-
-            if largura_bases > 1:
-                wrap_bases = max(
-                    largura_bases - 90,
-                    220
-                )
-
-                self.label_pasta.configure(
-                    wraplength=wrap_bases
-                )
-                self.label_status_base.configure(
-                    wraplength=wrap_bases
-                )
-
-    # ------------------------------------------------------------------
-    # Automação da consulta de óbitos
-    # ------------------------------------------------------------------
 
     def iniciar_verificacao_obitos(self):
         if self.consulta_obitos_service.esta_em_execucao():
@@ -2916,6 +3948,13 @@ class SinanPage(ctk.CTkFrame):
             self.consulta_obitos_service.obter_eventos()
         ):
             self._tratar_evento_automacao(
+                evento
+            )
+
+        for evento in (
+            self.atualizacao_bases_service.obter_eventos()
+        ):
+            self._tratar_evento_bases(
                 evento
             )
 
@@ -3071,6 +4110,248 @@ class SinanPage(ctk.CTkFrame):
                     parent=self.winfo_toplevel()
                 )
 
+    def _tratar_evento_bases(
+        self,
+        evento: dict
+    ):
+        tipo = evento.get("tipo")
+
+        if tipo == AtualizacaoBasesService.EVENTO_ETAPA:
+            etapa = evento.get("etapa")
+            estado_evento = evento.get(
+                "estado",
+                "em_andamento"
+            )
+            mensagem = evento.get(
+                "mensagem",
+                "Etapa em andamento."
+            )
+
+            conversao = {
+                "iniciada": "executando",
+                "em_andamento": "executando",
+                "concluida": "concluido",
+                "ignorada": "concluido"
+            }
+
+            estado_visual = conversao.get(
+                estado_evento,
+                "executando"
+            )
+
+            if etapa in self.estados_etapas_bases:
+                self.etapa_bases_atual = etapa
+                self.estado_bases_atual = estado_visual
+                self.mensagem_bases_atual = mensagem
+                self.estados_etapas_bases[
+                    etapa
+                ] = estado_visual
+                self.mensagens_etapas_bases[
+                    etapa
+                ] = mensagem
+
+                self.atualizar_linha_tempo_bases()
+
+            self.label_status_base.configure(
+                text=mensagem,
+                text_color=(
+                    Colors.SUCCESS
+                    if estado_visual == "concluido"
+                    else Colors.PRIMARY
+                )
+            )
+            self.registrar_operacao(
+                mensagem
+            )
+            return
+
+        if tipo == AtualizacaoBasesService.EVENTO_STATUS:
+            mensagem = evento.get(
+                "mensagem",
+                "Rotina de bases em andamento."
+            )
+            self.label_status_base.configure(
+                text=mensagem,
+                text_color=Colors.PRIMARY
+            )
+            self.registrar_operacao(
+                mensagem
+            )
+            return
+
+        if tipo == AtualizacaoBasesService.EVENTO_ATUALIZAR:
+            self.atualizar_painel_rotina()
+            return
+
+        if tipo == AtualizacaoBasesService.EVENTO_CONCLUIDO:
+            mensagem = evento.get(
+                "mensagem",
+                "Atualização das bases concluída."
+            )
+
+            self.etapa_bases_atual = (
+                AtualizacaoBasesService.ETAPA_FINALIZACAO
+            )
+            self.estado_bases_atual = "concluido"
+            self.mensagem_bases_atual = mensagem
+
+            for etapa in self.estados_etapas_bases:
+                self.estados_etapas_bases[
+                    etapa
+                ] = "concluido"
+
+            self.mensagens_etapas_bases[
+                AtualizacaoBasesService.ETAPA_FINALIZACAO
+            ] = mensagem
+
+            self.label_status_base.configure(
+                text=mensagem,
+                text_color=Colors.SUCCESS
+            )
+
+            self.atualizar_painel_rotina()
+            self.atualizar_linha_tempo_bases()
+            self._atualizar_controles_bases()
+
+            self.registrar_operacao(
+                mensagem
+            )
+
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Bases atualizadas",
+                mensagem=(
+                    "A rotina foi concluída com sucesso.\n\n"
+                    "Os ZIPs foram validados no histórico, "
+                    "as pastas de teste foram atualizadas e "
+                    "Bancos_Atuais recebeu a nova dupla."
+                ),
+                tipo="sucesso",
+                texto_botao="Concluir"
+            )
+            return
+
+        if tipo == AtualizacaoBasesService.EVENTO_CANCELADO:
+            mensagem = evento.get(
+                "mensagem",
+                "A atualização foi cancelada."
+            )
+
+            if (
+                self.etapa_bases_atual
+                in self.estados_etapas_bases
+            ):
+                self.estados_etapas_bases[
+                    self.etapa_bases_atual
+                ] = "cancelado"
+                self.mensagens_etapas_bases[
+                    self.etapa_bases_atual
+                ] = mensagem
+
+            self.estado_bases_atual = "cancelado"
+            self.label_status_base.configure(
+                text=mensagem,
+                text_color=Colors.TEXT_MUTED
+            )
+
+            self.atualizar_linha_tempo_bases()
+            self._atualizar_controles_bases()
+            self.registrar_operacao(
+                mensagem
+            )
+            return
+
+        if tipo == AtualizacaoBasesService.EVENTO_ERRO:
+            mensagem = evento.get(
+                "mensagem",
+                "Não foi possível atualizar as bases."
+            )
+            etapa = (
+                evento.get("etapa")
+                or self.etapa_bases_atual
+            )
+
+            if etapa in self.estados_etapas_bases:
+                self.estados_etapas_bases[
+                    etapa
+                ] = "erro"
+                self.mensagens_etapas_bases[
+                    etapa
+                ] = mensagem
+
+            self.estado_bases_atual = "erro"
+            self.label_status_base.configure(
+                text=mensagem,
+                text_color=Colors.TEXT_SECONDARY
+            )
+
+            self.atualizar_linha_tempo_bases()
+            self._atualizar_controles_bases()
+            self.registrar_operacao(
+                f"Erro na atualização das bases: {mensagem}"
+            )
+
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Erro na atualização das bases",
+                mensagem=(
+                    "A rotina não foi concluída.\n\n"
+                    f"{mensagem}\n\n"
+                    "Os mecanismos de backup e restauração "
+                    "permaneceram ativos."
+                ),
+                tipo="erro",
+                texto_botao="Fechar"
+            )
+
+    def _atualizar_controles_bases(
+        self,
+        rotina: dict | None = None
+    ):
+        if not hasattr(
+            self,
+            "botao_baixar"
+        ):
+            return
+
+        rotina = (
+            rotina
+            or self.checkpoint_service.obter_rotina()
+        )
+
+        executando = (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        )
+
+        if executando:
+            self.botao_baixar.configure(
+                text="● Rotina em andamento",
+                state="disabled"
+            )
+            self.botao_cancelar_bases.configure(
+                state="normal"
+            )
+            self.botao_atualizar_estado_bases.configure(
+                state="disabled"
+            )
+            return
+
+        self.botao_baixar.configure(
+            text=(
+                "↻ Executar novamente"
+                if rotina["atualizacao_bases"]
+                else "▶ Iniciar rotina"
+            ),
+            state="normal"
+        )
+        self.botao_cancelar_bases.configure(
+            state="disabled"
+        )
+        self.botao_atualizar_estado_bases.configure(
+            state="normal"
+        )
+
     def _atualizar_controles_automacao(
         self,
         rotina: dict | None = None
@@ -3102,7 +4383,7 @@ class SinanPage(ctk.CTkFrame):
 
         if rotina["verificacao_obitos"]:
             self.botao_iniciar_verificacao.configure(
-                text="✓ Verificação concluída",
+                text="✔️ Verificação concluída",
                 state="disabled"
             )
             self.botao_resetar_consulta.configure(
@@ -3136,6 +4417,12 @@ class SinanPage(ctk.CTkFrame):
 
         if self.consulta_obitos_service.esta_em_execucao():
             self.consulta_obitos_service.cancelar()
+
+        if (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        ):
+            self.atualizacao_bases_service.cancelar()
 
     # ------------------------------------------------------------------
     # Ações dos checkpoints
@@ -3181,33 +4468,15 @@ class SinanPage(ctk.CTkFrame):
         self.atualizar_painel_rotina()
 
     def concluir_atualizacao_bases(self):
-        if self.pasta_destino is None:
-            messagebox.showwarning(
-                title="Pasta não selecionada",
-                message=(
-                    "Selecione a pasta utilizada na atualização "
-                    "antes de concluir o checkpoint."
-                ),
-                parent=self.winfo_toplevel()
-            )
-            return
-
-        confirmou = messagebox.askyesno(
-            title="Concluir atualização manual",
-            message=(
-                "Confirma que as bases foram baixadas e "
-                "validadas manualmente na pasta selecionada?"
+        mostrar_dialogo_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Checkpoint automático",
+            mensagem=(
+                "A atualização das bases é registrada "
+                "automaticamente somente após a conclusão de "
+                "todas as etapas reais da rotina."
             ),
-            parent=self.winfo_toplevel()
-        )
-
-        if not confirmou:
-            return
-
-        self.checkpoint_service.marcar_atualizacao_bases()
-        self.atualizar_painel_rotina()
-        self.registrar_operacao(
-            "Atualização manual das bases confirmada."
+            tipo="informacao"
         )
 
     def resetar_checkpoints(self):
@@ -3265,7 +4534,7 @@ class SinanPage(ctk.CTkFrame):
         if rotina["verificacao_obitos"]:
             self.label_rotina_obitos.configure(
                 text=(
-                    "✓ Verificação de óbitos concluída"
+                    "✔️ Verificação de óbitos concluída"
                     f"{self.formatar_horario(
                         rotina['verificacao_obitos_em']
                     )}"
@@ -3281,54 +4550,33 @@ class SinanPage(ctk.CTkFrame):
         if rotina["atualizacao_bases"]:
             self.label_checkpoint_bases.configure(
                 text=(
-                    "✓ Atualização das bases concluída"
+                    "✔️ Atualização das bases concluída"
                     f"{self.formatar_horario(
                         rotina['atualizacao_bases_em']
                     )}"
                 ),
                 text_color=Colors.SUCCESS
             )
-            self.label_status_base.configure(
-                text="Bases atualizadas e conferidas hoje.",
-                text_color=Colors.SUCCESS
-            )
-            self.botao_concluir_bases.configure(
-                text="✓ Atualização concluída",
-                state="disabled"
-            )
+
+            if not (
+                self.atualizacao_bases_service
+                .esta_em_execucao()
+            ):
+                self.label_status_base.configure(
+                    text=(
+                        "Bases atualizadas e validadas hoje."
+                    ),
+                    text_color=Colors.SUCCESS
+                )
         else:
             self.label_checkpoint_bases.configure(
                 text="○ Atualização das bases pendente",
                 text_color=Colors.TEXT_MUTED
             )
-            self.botao_concluir_bases.configure(
-                text="✓ Concluir manualmente",
-                state=(
-                    "normal"
-                    if self.pasta_destino
-                    else "disabled"
-                )
-            )
-
-            if self.pasta_destino:
-                self.label_status_base.configure(
-                    text=(
-                        "Pasta configurada. A automação real "
-                        "do download ainda será conectada."
-                    ),
-                    text_color=Colors.TEXT_SECONDARY
-                )
-            else:
-                self.label_status_base.configure(
-                    text=(
-                        "Nenhuma pasta de destino selecionada"
-                    ),
-                    text_color=Colors.TEXT_SECONDARY
-                )
 
         if rotina["rotina_concluida"]:
             self.label_rotina_completa.configure(
-                text="✓ Rotina diária completa: concluída",
+                text="✔️ Rotina diária completa: concluída",
                 text_color=Colors.SUCCESS
             )
         else:
@@ -3338,6 +4586,9 @@ class SinanPage(ctk.CTkFrame):
             )
 
         self._atualizar_controles_automacao(
+            rotina
+        )
+        self._atualizar_controles_bases(
             rotina
         )
         self.atualizar_linha_tempo_consulta(
@@ -3374,7 +4625,7 @@ class SinanPage(ctk.CTkFrame):
                 "Revise os resultados no SINAN"
             ),
             CheckpointService.STATUS_CONCLUIDO: (
-                "✓ Conferido",
+                "✔️ Conferido",
                 Colors.SUCCESS,
                 self.texto_horario_checkpoint(
                     checkpoint
@@ -3410,7 +4661,7 @@ class SinanPage(ctk.CTkFrame):
             CheckpointService.STATUS_AGUARDANDO_CONFERENCIA:
                 "◉ Aguardando conferência",
             CheckpointService.STATUS_CONCLUIDO:
-                "✓ Conferido",
+                "✔️ Conferido",
             CheckpointService.STATUS_ERRO:
                 "✕ Erro na consulta"
         }.get(
@@ -3457,84 +4708,288 @@ class SinanPage(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def selecionar_pasta(self):
-        pasta = filedialog.askdirectory(
-            parent=self.winfo_toplevel(),
-            title="Selecione a pasta de destino"
-        )
-
-        if not pasta:
-            return
-
-        self.pasta_destino = pasta
-
-        self.label_pasta.configure(
-            text=f"📁 {pasta}",
-            text_color=Colors.TEXT_SECONDARY
-        )
-        self.label_status_base.configure(
-            text=(
-                "Pasta configurada. O próximo passo será "
-                "conectar o acesso e o download real do SINAN."
-            ),
-            text_color=Colors.TEXT_SECONDARY
-        )
-        self.botao_remover_pasta.configure(
-            state="normal"
-        )
-        self.botao_concluir_bases.configure(
-            state="normal"
-        )
-
-        self.atualizar_linha_tempo_bases()
-        self.registrar_operacao(
-            "Pasta de destino selecionada."
-        )
+        self.atualizar_estado_bases()
 
     def remover_pasta(self):
-        if self.pasta_destino is None:
-            return
-
-        self.pasta_destino = None
-
-        self.label_pasta.configure(
-            text="📁 Nenhuma pasta selecionada",
-            text_color=Colors.TEXT_MUTED
-        )
-        self.label_status_base.configure(
-            text="Nenhuma pasta de destino selecionada",
-            text_color=Colors.TEXT_SECONDARY
-        )
-        self.botao_remover_pasta.configure(
-            state="disabled"
-        )
-        self.botao_concluir_bases.configure(
-            state="disabled"
-        )
-
-        self.atualizar_linha_tempo_bases()
-        self.registrar_operacao(
-            "Seleção da pasta de destino removida."
-        )
+        self.atualizar_estado_bases()
 
     def iniciar_download(self):
         """
-        Ponto de entrada reservado para a automação real das bases.
+        Inicia a rotina real das bases em segundo plano.
 
-        A antiga simulação foi removida. Enquanto o fluxo do SINAN
-        não estiver mapeado, o aplicativo não apresenta progresso
-        fictício nem marca o checkpoint automaticamente.
+        A confirmação muda conforme o estado do dia. Quando ainda
+        não existem solicitações, a interface informa explicitamente
+        que serão criadas solicitações reais no SINAN.
         """
 
-        messagebox.showinfo(
-            title="Automação de bases em preparação",
-            message=(
-                "A interface do processo já está preparada. "
-                "O próximo passo será mapear o caminho real no "
-                "SINAN: acesso, seleção das bases, download e "
-                "validação dos arquivos."
-            ),
-            parent=self.winfo_toplevel()
+        if (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        ):
+            return
+
+        try:
+            estado = (
+                self.atualizacao_bases_service
+                .avaliar_estado_do_dia()
+            )
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Não foi possível avaliar a rotina",
+                mensagem=str(erro),
+                tipo="erro",
+                texto_botao="Fechar"
+            )
+            return
+
+        autorizacao_solicitacoes = False
+
+        if estado["requer_novas_solicitacoes"]:
+            faltantes = ", ".join(
+                estado["solicitacoes_faltantes"]
+            )
+
+            confirmou = solicitar_confirmacao_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Criar solicitações reais?",
+                mensagem=(
+                    "Ainda faltam solicitações reais para hoje:\n\n"
+                    f"{faltantes}\n\n"
+                    "O ArboHub abrirá o SINAN, aguardará seu login "
+                    "manual e enviará somente as solicitações "
+                    "faltantes. Cada número será salvo "
+                    "imediatamente após aparecer na tela."
+                ),
+                texto_confirmar="Solicitar e continuar",
+                texto_cancelar="Cancelar",
+                tipo="aviso"
+            )
+
+            if not confirmou:
+                return
+
+            autorizacao_solicitacoes = True
+
+        elif estado["requer_navegador"]:
+            confirmou = solicitar_confirmacao_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Continuar atualização?",
+                mensagem=(
+                    "As solicitações de hoje já estão salvas, "
+                    "mas os ZIPs ainda precisam ser acompanhados "
+                    "ou baixados.\n\n"
+                    "O SINAN será aberto e o login continuará "
+                    "manual."
+                ),
+                texto_confirmar="Abrir o SINAN",
+                texto_cancelar="Cancelar"
+            )
+
+            if not confirmou:
+                return
+
+        else:
+            confirmou = solicitar_confirmacao_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Executar rotina novamente?",
+                mensagem=(
+                    "As solicitações e os ZIPs válidos de hoje "
+                    "já existem.\n\n"
+                    "Nenhuma nova solicitação será criada e o "
+                    "SINAN não precisará ser aberto. O ArboHub "
+                    "validará o histórico e atualizará novamente "
+                    "as pastas de teste e Bancos_Atuais."
+                ),
+                texto_confirmar="Executar novamente",
+                texto_cancelar="Cancelar"
+            )
+
+            if not confirmou:
+                return
+
+        self.etapa_bases_atual = None
+        self.estado_bases_atual = "aguardando"
+        self.mensagem_bases_atual = None
+        self.estados_etapas_bases = {
+            etapa[0]: "aguardando"
+            for etapa in self.ETAPAS_FLUXO_BASES
+        }
+        self.mensagens_etapas_bases = {}
+
+        iniciou = (
+            self.atualizacao_bases_service.iniciar(
+                solicitacoes_autorizadas=(
+                    autorizacao_solicitacoes
+                )
+            )
         )
+
+        if not iniciou:
+            return
+
+        self.label_status_base.configure(
+            text="Iniciando a rotina diária das bases.",
+            text_color=Colors.PRIMARY
+        )
+        self.atualizar_linha_tempo_bases()
+        self._atualizar_controles_bases()
+
+        self.registrar_operacao(
+            "Rotina diária das bases iniciada."
+        )
+
+    def cancelar_atualizacao_bases(self):
+        if not (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        ):
+            return
+
+        confirmou = solicitar_confirmacao_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Cancelar atualização?",
+            mensagem=(
+                "O cancelamento ocorrerá no próximo ponto seguro. "
+                "Uma substituição atômica já iniciada não será "
+                "interrompida pela metade."
+            ),
+            texto_confirmar="Solicitar cancelamento",
+            texto_cancelar="Continuar rotina",
+            tipo="aviso"
+        )
+
+        if not confirmou:
+            return
+
+        self.atualizacao_bases_service.cancelar()
+        self.botao_cancelar_bases.configure(
+            state="disabled"
+        )
+        self.label_status_base.configure(
+            text=(
+                "Cancelamento solicitado. "
+                "Aguardando um ponto seguro."
+            ),
+            text_color=Colors.TEXT_MUTED
+        )
+        self.registrar_operacao(
+            "Cancelamento da rotina de bases solicitado."
+        )
+
+    def atualizar_estado_bases(self):
+        if not hasattr(
+            self,
+            "label_status_base"
+        ):
+            return
+
+        if (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        ):
+            return
+
+        try:
+            estado = (
+                self.atualizacao_bases_service
+                .avaliar_estado_do_dia()
+            )
+        except Exception as erro:
+            self.label_status_base.configure(
+                text=(
+                    "Não foi possível verificar a situação: "
+                    f"{erro}"
+                ),
+                text_color="#E06C75"
+            )
+            return
+
+        lote_completo = estado["lote_completo"]
+        lote_parcial = estado["lote_parcial"]
+
+        if (
+            lote_completo is not None
+            and estado["historico_completo"]
+        ):
+            mensagem = (
+                "Solicitações e ZIPs válidos de hoje já estão "
+                "disponíveis. A rotina pode reutilizar o histórico "
+                "e atualizar os destinos sem abrir o SINAN."
+            )
+
+        elif lote_completo is not None:
+            mensagem = (
+                "As solicitações de hoje já estão salvas. "
+                "O SINAN será aberto para acompanhar o "
+                "processamento e baixar os ZIPs."
+            )
+
+        elif lote_parcial is not None:
+            faltantes = ", ".join(
+                estado["solicitacoes_faltantes"]
+            )
+            mensagem = (
+                "Um lote parcial foi encontrado. Ao iniciar, "
+                "será criada somente a solicitação faltante: "
+                f"{faltantes}."
+            )
+
+        else:
+            mensagem = (
+                "Ainda não existem solicitações para hoje. "
+                "Ao iniciar, o ArboHub solicitará autorização "
+                "antes de criar Dengue e Chikungunya no SINAN."
+            )
+
+        self.label_status_base.configure(
+            text=mensagem,
+            text_color=Colors.TEXT_SECONDARY
+        )
+
+        if lote_completo is not None:
+            self.label_solicitacoes_bases.configure(
+                text="✔️ Solicitações do dia prontas",
+                text_color=Colors.SUCCESS
+            )
+        elif lote_parcial is not None:
+            self.label_solicitacoes_bases.configure(
+                text="● Lote parcial localizado",
+                text_color=Colors.PRIMARY
+            )
+        else:
+            self.label_solicitacoes_bases.configure(
+                text="○ Solicitações pendentes",
+                text_color=Colors.TEXT_MUTED
+            )
+
+        if estado["historico_completo"]:
+            self.label_arquivos_bases.configure(
+                text="✔️ ZIPs do dia disponíveis",
+                text_color=Colors.SUCCESS
+            )
+            self._aplicar_estado_card_destino_bases(
+                self.card_destino_historico,
+                "concluido"
+            )
+        else:
+            self.label_arquivos_bases.configure(
+                text="○ Downloads pendentes",
+                text_color=Colors.TEXT_MUTED
+            )
+
+            if (
+                self.estados_etapas_bases.get(
+                    AtualizacaoBasesService.ETAPA_HISTORICO
+                )
+                == "aguardando"
+            ):
+                self._aplicar_estado_card_destino_bases(
+                    self.card_destino_historico,
+                    "aguardando"
+                )
+
+        self._atualizar_controles_bases()
 
     def _criar_painel(
         self,
