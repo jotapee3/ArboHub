@@ -725,6 +725,49 @@ class CheckpointService:
             )
             conexao.commit()
 
+    def resetar_atualizacao_bases(
+        self,
+        data_referencia: date | None = None
+    ):
+        """
+        Reseta somente o checkpoint visual da atualização de Bases.
+
+        Este método NÃO:
+        - apaga números de solicitação;
+        - remove ZIPs históricos;
+        - exclui ou altera DBFs;
+        - apaga checkpoints da consulta de óbitos.
+
+        Ele permite repetir o fluxo de validação e distribuição dos
+        arquivos usando as solicitações e o histórico já existentes.
+        """
+
+        data_referencia = (
+            data_referencia
+            or date.today()
+        )
+
+        self.garantir_rotina_do_dia(
+            data_referencia
+        )
+
+        with self.conectar() as conexao:
+            conexao.execute(
+                """
+                    UPDATE rotina_diaria
+                    SET
+                        atualizacao_bases = 0,
+                        atualizacao_bases_em = NULL,
+                        alerta_enviado = 0,
+                        alerta_enviado_em = NULL
+                    WHERE data_referencia = ?
+                """,
+                (
+                    data_referencia.isoformat(),
+                )
+            )
+            conexao.commit()
+
     def resetar_rotina(
         self,
         data_referencia: date | None = None

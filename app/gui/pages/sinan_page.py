@@ -1787,37 +1787,108 @@ class SinanPage(ctk.CTkFrame):
             self.filtro_resultado_relatorio.get()
         )
 
-        registros = self.checkpoint_service.listar_relatorios_obitos(
-            agravo=agravo,
-            resultado_comparacao=resultado,
-            limite=100
+        registros = (
+            self.checkpoint_service
+            .listar_relatorios_obitos(
+                agravo=agravo,
+                resultado_comparacao=resultado,
+                limite=100
+            )
         )
 
-        for filho in self.container_relatorios.winfo_children():
+        for filho in (
+            self.container_relatorios.winfo_children()
+        ):
             filho.destroy()
 
         self.labels_relatorios_wrap = []
 
-        quantidade = len(registros)
-        self.label_quantidade_relatorios.configure(
-            text=(
-                f"{quantidade} registro"
-                if quantidade == 1
-                else f"{quantidade} registros"
-            )
-        )
-
         if not registros:
+            self.label_quantidade_relatorios.configure(
+                text="0 registros"
+            )
             self._criar_estado_vazio_relatorios()
             return
 
-        for linha, registro in enumerate(registros):
-            self._criar_card_relatorio(
-                registro=registro,
-                linha=linha
+        # Sem filtro de agravo, as conferências do mesmo dia
+        # são apresentadas dentro de uma única borda.
+        if agravo is None:
+            registros_por_dia = {}
+
+            for registro in registros:
+                data_referencia = registro[
+                    "data_referencia"
+                ]
+                registros_por_dia.setdefault(
+                    data_referencia,
+                    []
+                ).append(registro)
+
+            quantidade_dias = len(
+                registros_por_dia
+            )
+            quantidade_conferencias = len(
+                registros
             )
 
-        self.after(20, self._ajustar_wrap_relatorios)
+            texto_dias = (
+                f"{quantidade_dias} dia"
+                if quantidade_dias == 1
+                else f"{quantidade_dias} dias"
+            )
+            texto_conferencias = (
+                f"{quantidade_conferencias} conferência"
+                if quantidade_conferencias == 1
+                else (
+                    f"{quantidade_conferencias} "
+                    "conferências"
+                )
+            )
+
+            self.label_quantidade_relatorios.configure(
+                text=(
+                    f"{texto_dias} • "
+                    f"{texto_conferencias}"
+                )
+            )
+
+            for linha, (
+                data_referencia,
+                registros_dia
+            ) in enumerate(
+                registros_por_dia.items()
+            ):
+                self._criar_card_relatorio_dia(
+                    data_referencia=data_referencia,
+                    registros=registros_dia,
+                    linha=linha
+                )
+
+        # Ao selecionar Dengue ou Chikungunya, cada registro
+        # volta a ser exibido individualmente.
+        else:
+            quantidade = len(registros)
+
+            self.label_quantidade_relatorios.configure(
+                text=(
+                    f"{quantidade} registro"
+                    if quantidade == 1
+                    else f"{quantidade} registros"
+                )
+            )
+
+            for linha, registro in enumerate(
+                registros
+            ):
+                self._criar_card_relatorio(
+                    registro=registro,
+                    linha=linha
+                )
+
+        self.after(
+            20,
+            self._ajustar_wrap_relatorios
+        )
 
     def _criar_estado_vazio_relatorios(self):
         painel = ctk.CTkFrame(
@@ -1873,6 +1944,316 @@ class SinanPage(ctk.CTkFrame):
             padx=20,
             pady=(0, 20)
         )
+
+    def _criar_card_relatorio_dia(
+        self,
+        data_referencia: str,
+        registros: list[dict],
+        linha: int
+    ):
+        """
+        Cria uma única borda por dia.
+
+        Dengue e Chikungunya ficam lado a lado dentro do mesmo
+        registro diário. Se o filtro de resultado retornar apenas
+        um agravo para a data, o bloco ocupa toda a largura.
+        """
+
+        card = ctk.CTkFrame(
+            self.container_relatorios,
+            fg_color=Colors.SURFACE,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        card.grid(
+            row=linha,
+            column=0,
+            sticky="ew",
+            pady=(0, 10)
+        )
+        card.grid_columnconfigure(0, weight=1)
+
+        data_formatada = (
+            self._formatar_data_relatorio(
+                data_referencia
+            )
+        )
+
+        cabecalho = ctk.CTkFrame(
+            card,
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7
+        )
+        cabecalho.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=12,
+            pady=(12, 0)
+        )
+        cabecalho.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            cabecalho,
+            text=data_formatada,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=14,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=(12, 8),
+            pady=11
+        )
+
+        quantidade = len(registros)
+
+        ctk.CTkLabel(
+            cabecalho,
+            text=(
+                f"{quantidade} agravo"
+                if quantidade == 1
+                else f"{quantidade} agravos"
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="e"
+        ).grid(
+            row=0,
+            column=1,
+            sticky="e",
+            padx=(8, 12),
+            pady=11
+        )
+
+        conteudo = ctk.CTkFrame(
+            card,
+            fg_color="transparent"
+        )
+        conteudo.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=12,
+            pady=12
+        )
+
+        if quantidade == 1:
+            conteudo.grid_columnconfigure(
+                0,
+                weight=1
+            )
+        else:
+            conteudo.grid_columnconfigure(
+                (0, 1),
+                weight=1,
+                uniform=f"relatorio_dia_{linha}"
+            )
+
+        # Mantém uma ordem previsível: Dengue antes de
+        # Chikungunya, independentemente da consulta ao banco.
+        ordem_agravos = {
+            CheckpointService.AGRAVO_DENGUE: 0,
+            CheckpointService.AGRAVO_CHIKUNGUNYA: 1
+        }
+        registros_ordenados = sorted(
+            registros,
+            key=lambda item: ordem_agravos.get(
+                item.get("agravo"),
+                99
+            )
+        )
+
+        for coluna, registro in enumerate(
+            registros_ordenados
+        ):
+            self._criar_bloco_agravo_relatorio(
+                master=conteudo,
+                registro=registro,
+                coluna=coluna,
+                total=quantidade
+            )
+
+    def _criar_bloco_agravo_relatorio(
+        self,
+        master,
+        registro: dict,
+        coluna: int,
+        total: int
+    ):
+        agravo = (
+            "Dengue"
+            if registro["agravo"]
+            == CheckpointService.AGRAVO_DENGUE
+            else "Chikungunya"
+        )
+
+        bloco = ctk.CTkFrame(
+            master,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=7,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        bloco.grid(
+            row=0,
+            column=coluna,
+            sticky="nsew",
+            padx=(
+                0
+                if total == 1
+                else (
+                    (0, 5)
+                    if coluna == 0
+                    else (5, 0)
+                )
+            )
+        )
+        bloco.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        topo = ctk.CTkFrame(
+            bloco,
+            fg_color="transparent"
+        )
+        topo.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(13, 0)
+        )
+        topo.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            topo,
+            text=agravo,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=13,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w"
+        )
+
+        resultado = registro.get(
+            "resultado_comparacao"
+        )
+
+        if resultado == "mudou":
+            texto_resultado = "◉ Houve alteração"
+            cor_resultado = Colors.PRIMARY
+        elif resultado == "manteve_igual":
+            texto_resultado = "✔️ Manteve igual"
+            cor_resultado = Colors.SUCCESS
+        else:
+            texto_resultado = (
+                "○ Resultado não informado"
+            )
+            cor_resultado = Colors.TEXT_MUTED
+
+        ctk.CTkLabel(
+            bloco,
+            text=texto_resultado,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold"
+            ),
+            text_color=cor_resultado,
+            anchor="w"
+        ).grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(8, 4)
+        )
+
+        horario = (
+            self._formatar_horario_relatorio(
+                registro.get("confirmado_em")
+            )
+        )
+        responsavel = (
+            registro.get("responsavel")
+            or "Não informado"
+        )
+
+        label_metadados = ctk.CTkLabel(
+            bloco,
+            text=(
+                f"Conferido {horario}\n"
+                f"Responsável: {responsavel}"
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=300
+        )
+        label_metadados.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=14
+        )
+
+        observacao = (
+            registro.get("observacao")
+            or "Sem observação registrada."
+        )
+
+        label_observacao = ctk.CTkLabel(
+            bloco,
+            text=f"Observação: {observacao}",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=300
+        )
+        label_observacao.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(9, 14)
+        )
+
+        self.labels_relatorios_wrap.extend([
+            label_metadados,
+            label_observacao
+        ])
 
     def _criar_card_relatorio(
         self,
@@ -2124,7 +2505,7 @@ class SinanPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             indicador,
-            text="📂",
+            text="🔄",
             font=ctk.CTkFont(
                 family="Segoe UI Emoji",
                 size=18
@@ -2411,10 +2792,19 @@ class SinanPage(ctk.CTkFrame):
             transparente=True
         )
 
+        self.botao_resetar_bases = self._criar_botao(
+            botoes,
+            "↺ Resetar teste",
+            self.resetar_atualizacao_bases_teste,
+            155,
+            transparente=True
+        )
+
         self.botoes_bases = [
             self.botao_baixar,
             self.botao_cancelar_bases,
-            self.botao_atualizar_estado_bases
+            self.botao_atualizar_estado_bases,
+            self.botao_resetar_bases
         ]
 
         self.label_checkpoint_bases = ctk.CTkLabel(
@@ -3758,7 +4148,10 @@ class SinanPage(ctk.CTkFrame):
             )
 
     def ajustar_layout_botoes_bases(self, event=None):
-        if not hasattr(self, "container_botoes_bases"):
+        if not hasattr(
+            self,
+            "container_botoes_bases"
+        ):
             return
 
         largura = (
@@ -3772,10 +4165,10 @@ class SinanPage(ctk.CTkFrame):
 
         if largura < 520:
             colunas = 1
-        elif largura < 850:
+        elif largura < 900:
             colunas = 2
         else:
-            colunas = 3
+            colunas = 4
 
         if (
             self.layout_botoes_bases == colunas
@@ -3783,10 +4176,14 @@ class SinanPage(ctk.CTkFrame):
         ):
             return
 
-        for indice in range(3):
+        for indice in range(4):
             self.container_botoes_bases.grid_columnconfigure(
                 indice,
-                weight=1,
+                weight=(
+                    1
+                    if indice < colunas
+                    else 0
+                ),
                 uniform=(
                     "botoes_bases"
                     if indice < colunas
@@ -4335,6 +4732,9 @@ class SinanPage(ctk.CTkFrame):
             self.botao_atualizar_estado_bases.configure(
                 state="disabled"
             )
+            self.botao_resetar_bases.configure(
+                state="disabled"
+            )
             return
 
         self.botao_baixar.configure(
@@ -4349,6 +4749,9 @@ class SinanPage(ctk.CTkFrame):
             state="disabled"
         )
         self.botao_atualizar_estado_bases.configure(
+            state="normal"
+        )
+        self.botao_resetar_bases.configure(
             state="normal"
         )
 
@@ -4466,6 +4869,80 @@ class SinanPage(ctk.CTkFrame):
     def concluir_verificacao_obitos(self):
         self.checkpoint_service.marcar_verificacao_obitos()
         self.atualizar_painel_rotina()
+
+    def resetar_atualizacao_bases_teste(self):
+        """
+        Reseta somente o checkpoint visual da atualização de Bases.
+
+        Solicitações, números capturados, ZIPs históricos e DBFs
+        permanecem intactos. Ao executar novamente, o ArboHub
+        reutiliza os arquivos do dia e repete as validações e cópias.
+        """
+
+        if (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        ):
+            return
+
+        confirmou = solicitar_confirmacao_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Resetar atualização de Bases?",
+            mensagem=(
+                "Este reset é destinado a testes.\n\n"
+                "Ele apagará somente o checkpoint visual de Bases "
+                "do dia atual e reiniciará a linha do tempo.\n\n"
+                "Não serão apagados:\n"
+                "• números de solicitação;\n"
+                "• ZIPs do histórico;\n"
+                "• DBFs das pastas de teste;\n"
+                "• arquivos de Bancos_Atuais;\n"
+                "• verificação de óbitos.\n\n"
+                "Na próxima execução, o ArboHub reutilizará os "
+                "arquivos já existentes e repetirá a validação e "
+                "a distribuição dos DBFs."
+            ),
+            texto_confirmar="Resetar para teste",
+            texto_cancelar="Cancelar",
+            tipo="aviso"
+        )
+
+        if not confirmou:
+            return
+
+        self.checkpoint_service.resetar_atualizacao_bases()
+
+        self.etapa_bases_atual = None
+        self.estado_bases_atual = "aguardando"
+        self.mensagem_bases_atual = None
+
+        self.estados_etapas_bases = {
+            etapa[0]: "aguardando"
+            for etapa in self.ETAPAS_FLUXO_BASES
+        }
+        self.mensagens_etapas_bases = {}
+
+        self.atualizar_painel_rotina()
+        self.atualizar_linha_tempo_bases()
+        self.atualizar_estado_bases()
+        self._atualizar_controles_bases()
+
+        self.registrar_operacao(
+            "Checkpoint visual de Bases resetado para teste."
+        )
+
+        mostrar_dialogo_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Bases prontas para novo teste",
+            mensagem=(
+                "O checkpoint visual foi resetado.\n\n"
+                "Clique em “Iniciar rotina” para repetir o "
+                "procedimento usando as solicitações e os ZIPs "
+                "já existentes para hoje."
+            ),
+            tipo="sucesso",
+            texto_botao="Entendi"
+        )
 
     def concluir_atualizacao_bases(self):
         mostrar_dialogo_arbohub(
