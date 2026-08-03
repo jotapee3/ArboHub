@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import tkinter as tk
+from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import customtkinter as ctk
+from PIL import Image
 
 from app.gui.themes.colors import Colors
 from app.services.dashboard_service import DashboardService
@@ -48,6 +50,7 @@ class InicioPage(ctk.CTkScrollableFrame):
         )
 
         self.dashboard_service = DashboardService()
+        self._icones_sistemas: dict[str, ctk.CTkImage] = {}
         self.resumo: dict[str, object] | None = None
         self._atualizacao_id = None
         self._pagina_destruida = False
@@ -456,6 +459,7 @@ class InicioPage(ctk.CTkScrollableFrame):
             master=self.painel_rotina,
             coluna=0,
             icone="S",
+            icone_arquivo="sinan_logo.png",
             titulo="SINAN",
             subtitulo=(
                 "Consulta de óbitos e atualização das bases"
@@ -466,6 +470,7 @@ class InicioPage(ctk.CTkScrollableFrame):
             master=self.painel_rotina,
             coluna=1,
             icone="G",
+            icone_arquivo="gal_logo.png",
             titulo="GAL",
             subtitulo=(
                 "Atualização semanal do banco laboratorial"
@@ -477,6 +482,7 @@ class InicioPage(ctk.CTkScrollableFrame):
         master,
         coluna: int,
         icone: str,
+        icone_arquivo: str,
         titulo: str,
         subtitulo: str
     ) -> dict[str, ctk.CTkBaseClass]:
@@ -519,16 +525,26 @@ class InicioPage(ctk.CTkScrollableFrame):
         )
         icone_frame.grid_propagate(False)
 
-        ctk.CTkLabel(
+        imagem_icone = self._carregar_icone_sistema(
+            icone_arquivo
+        )
+
+        label_icone = ctk.CTkLabel(
             icone_frame,
-            text=icone,
+            text=(
+                ""
+                if imagem_icone is not None
+                else icone
+            ),
+            image=imagem_icone,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=16,
                 weight="bold"
             ),
             text_color=Colors.PRIMARY
-        ).place(
+        )
+        label_icone.place(
             relx=0.5,
             rely=0.5,
             anchor="center"
@@ -805,6 +821,67 @@ class InicioPage(ctk.CTkScrollableFrame):
             0,
             weight=1
         )
+
+    def _carregar_icone_sistema(
+        self,
+        nome_arquivo: str
+    ) -> ctk.CTkImage | None:
+        """
+        Carrega as logos de SINAN e GAL sem alterar o layout dos cards.
+
+        Se o arquivo não estiver disponível, o card usa automaticamente
+        a letra original como fallback.
+        """
+
+        if nome_arquivo in self._icones_sistemas:
+            return self._icones_sistemas[
+                nome_arquivo
+            ]
+
+        raiz_projeto = Path(
+            __file__
+        ).resolve().parents[3]
+
+        candidatos = (
+            raiz_projeto
+            / "assets"
+            / "sistemas"
+            / nome_arquivo,
+            raiz_projeto
+            / "app"
+            / "assets"
+            / "sistemas"
+            / nome_arquivo
+        )
+
+        for caminho in candidatos:
+            if not caminho.exists():
+                continue
+
+            try:
+                with Image.open(caminho) as arquivo:
+                    imagem_pil = arquivo.convert(
+                        "RGBA"
+                    )
+
+                imagem = ctk.CTkImage(
+                    light_image=imagem_pil,
+                    dark_image=imagem_pil,
+                    size=(30, 30)
+                )
+
+                self._icones_sistemas[
+                    nome_arquivo
+                ] = imagem
+
+                return imagem
+            except (
+                OSError,
+                ValueError
+            ):
+                continue
+
+        return None
 
     # ------------------------------------------------------------------
     # Atualização
