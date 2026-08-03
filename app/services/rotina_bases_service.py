@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from time import monotonic
 from pathlib import Path
 from typing import Callable
 
@@ -18,6 +19,21 @@ from app.services.exportacao_dbf_service import (
 
 class RotinaBasesCancelada(RuntimeError):
     """Indica cancelamento solicitado pelo usuário."""
+
+
+class ProcessamentoBasesPendente(RuntimeError):
+    """
+    Indica que o limite de acompanhamento foi atingido sem que
+    as duas exportações ficassem disponíveis.
+    """
+
+    def __init__(
+        self,
+        mensagem: str,
+        dados: dict[str, object]
+    ):
+        super().__init__(mensagem)
+        self.dados = dados
 
 
 @dataclass(frozen=True)
@@ -595,9 +611,10 @@ class RotinaBasesService:
         atualizar_pastas_teste: bool = True,
         atualizar_bancos_atuais: bool = True,
         intervalo_consulta_segundos: float = 15,
-        tempo_limite_segundos: float = 1800,
+        tempo_limite_segundos: float = 1200,
         ao_evento: CallbackEvento | None = None,
-        cancelado: CallbackCancelamento | None = None
+        cancelado: CallbackCancelamento | None = None,
+        modo_manual_ativo: CallbackCancelamento | None = None
     ) -> dict[str, object]:
         """
         Executa solicitações e processamento em uma única rotina.
@@ -646,7 +663,8 @@ class RotinaBasesService:
                 tempo_limite_segundos
             ),
             ao_evento=ao_evento,
-            cancelado=cancelado
+            cancelado=cancelado,
+            modo_manual_ativo=modo_manual_ativo
         )
 
         resultado_pos["solicitacoes"] = (
@@ -664,9 +682,10 @@ class RotinaBasesService:
         atualizar_pastas_teste: bool = True,
         atualizar_bancos_atuais: bool = True,
         intervalo_consulta_segundos: float = 15,
-        tempo_limite_segundos: float = 1800,
+        tempo_limite_segundos: float = 1200,
         ao_evento: CallbackEvento | None = None,
-        cancelado: CallbackCancelamento | None = None
+        cancelado: CallbackCancelamento | None = None,
+        modo_manual_ativo: CallbackCancelamento | None = None
     ) -> dict[str, object]:
         """
         Executa todo o fluxo posterior à criação das solicitações.
@@ -847,9 +866,7 @@ class RotinaBasesService:
                     f"{detalhe}"
                 )
 
-            self._verificar_cancelamento(
-                cancelado
-            )
+            self._verificar_cancelamento(cancelado)
 
             self._emitir(
                 ao_evento=ao_evento,
@@ -862,178 +879,336 @@ class RotinaBasesService:
 
             exportacao.abrir_consulta_exportacoes_dbf()
 
+            pasta_lote = self.arquivos_service.criar_pasta_lote(
+                lote_id=lote["lote_id"],
+                data_referencia=data_referencia
+            )
+            agravos_processados: set[str] = set()
+            alertas_emitidos: set[int] = set()
+            inicio_processamento = monotonic()
+
+            configuracao_agravos = {
+                "dengue": {
+                    "agravo_arquivo": (
+                        ArquivosExportacaoDbfService.AGRAVO_DENGUE
+                    ),
+                    "agravo_registro": ExportacaoDbfService.AGRAVO_DENGUE,
+                    "rotulo": "Dengue",
+                    "numero": numero_dengue
+                },
+                "chikungunya": {
+                    "agravo_arquivo": (
+                        ArquivosExportacaoDbfService.AGRAVO_CHIKUNGUNYA
+                    ),
+                    "agravo_registro": (
+                        ExportacaoDbfService.AGRAVO_CHIKUNGUNYA
+                    ),
+                    "rotulo": "Chikungunya",
+                    "numero": numero_chikungunya
+                }
+            }
+
+            # Uma execução anterior pode ter concluído apenas um
+            # agravo. Nesse caso, o arquivo histórico é validado e
+            # reaproveitado sem novo download.
+            for chave, configuracao in configuracao_agravos.items():
+                if caminhos_historico[chave].exists():
+                    self._finalizar_agravo_historico(
+                        agravo=configuracao["agravo_arquivo"],
+                        rotulo=configuracao["rotulo"],
+                        data_referencia=data_referencia,
+                        atualizar_pastas_teste=atualizar_pastas_teste,
+                        atualizar_bancos_atuais=atualizar_bancos_atuais,
+                        ao_evento=ao_evento,
+                        reutilizado=True
+                    )
+                    agravos_processados.add(chave)
+
             def ao_atualizar(
                 tentativa: int,
-                resultados: dict[
-                    str,
-                    dict[str, object]
-                ]
+                resultados: dict[str, dict[str, object]]
             ):
                 self.registro_service.atualizar_resultado_consulta(
                     lote_id=lote["lote_id"],
-                    agravo=(
-                        ExportacaoDbfService
-                        .AGRAVO_DENGUE
-                    ),
+                    agravo=ExportacaoDbfService.AGRAVO_DENGUE,
                     resultado=resultados["dengue"]
                 )
                 self.registro_service.atualizar_resultado_consulta(
                     lote_id=lote["lote_id"],
-                    agravo=(
-                        ExportacaoDbfService
-                        .AGRAVO_CHIKUNGUNYA
-                    ),
-                    resultado=resultados[
-                        "chikungunya"
-                    ]
+                    agravo=ExportacaoDbfService.AGRAVO_CHIKUNGUNYA,
+                    resultado=resultados["chikungunya"]
                 )
+
+                for chave, configuracao in configuracao_agravos.items():
+                    if chave in agravos_processados:
+                        continue
+
+                    if self._resultado_exportacao_pronto(
+                        resultados[chave]
+                    ):
+                        self._baixar_e_distribuir_agravo(
+                            exportacao=exportacao,
+                            numero_solicitacao=configuracao["numero"],
+                            agravo=configuracao["agravo_arquivo"],
+                            rotulo=configuracao["rotulo"],
+                            pasta_lote=pasta_lote,
+                            data_referencia=data_referencia,
+                            atualizar_pastas_teste=atualizar_pastas_teste,
+                            atualizar_bancos_atuais=atualizar_bancos_atuais,
+                            ao_evento=ao_evento,
+                            cancelado=cancelado
+                        )
+                        agravos_processados.add(chave)
+
+                pendentes = [
+                    configuracao_agravos[chave]["rotulo"]
+                    for chave in configuracao_agravos
+                    if chave not in agravos_processados
+                ]
+                concluidos = [
+                    configuracao_agravos[chave]["rotulo"]
+                    for chave in configuracao_agravos
+                    if chave in agravos_processados
+                ]
+
+                if concluidos and pendentes:
+                    mensagem = (
+                        f"{', '.join(concluidos)} já foi validado e "
+                        "distribuído. "
+                        f"{', '.join(pendentes)} continua em "
+                        "processamento no SINAN."
+                    )
+                else:
+                    mensagem = (
+                        f"Consulta {tentativa}: acompanhando o "
+                        "processamento das exportações."
+                    )
+
+                tempo_decorrido = monotonic() - inicio_processamento
 
                 self._emitir(
                     ao_evento=ao_evento,
                     etapa=self.ETAPA_PROCESSAMENTO,
                     estado=self.ESTADO_EM_ANDAMENTO,
-                    mensagem=(
-                        f"Consulta {tentativa}: "
-                        "acompanhando o processamento."
-                    ),
+                    mensagem=mensagem,
                     dados={
                         "tentativa": tentativa,
+                        "tempo_decorrido_segundos": round(
+                            tempo_decorrido,
+                            1
+                        ),
+                        "agravos_processados": tuple(concluidos),
+                        "agravos_pendentes": tuple(pendentes),
                         "dengue": {
-                            "status":
-                                resultados[
-                                    "dengue"
-                                ]["status"],
-                            "link_disponivel":
-                                resultados[
-                                    "dengue"
-                                ]["link_disponivel"]
+                            "status": resultados["dengue"]["status"],
+                            "link_disponivel": resultados["dengue"][
+                                "link_disponivel"
+                            ],
+                            "processado": "dengue" in agravos_processados
                         },
                         "chikungunya": {
-                            "status":
-                                resultados[
-                                    "chikungunya"
-                                ]["status"],
-                            "link_disponivel":
-                                resultados[
-                                    "chikungunya"
-                                ]["link_disponivel"]
+                            "status": resultados["chikungunya"]["status"],
+                            "link_disponivel": resultados["chikungunya"][
+                                "link_disponivel"
+                            ],
+                            "processado": (
+                                "chikungunya" in agravos_processados
+                            )
                         }
                     }
                 )
 
-            processamento = (
-                exportacao.aguardar_solicitacoes_prontas(
-                    numero_dengue=numero_dengue,
-                    numero_chikungunya=(
-                        numero_chikungunya
+                if (
+                    tentativa >= 2
+                    and 0 not in alertas_emitidos
+                ):
+                    alertas_emitidos.add(0)
+                    self._emitir(
+                        ao_evento=ao_evento,
+                        etapa=self.ETAPA_PROCESSAMENTO,
+                        estado=self.ESTADO_EM_ANDAMENTO,
+                        mensagem=(
+                            "O SINAN ainda está processando as "
+                            "exportações."
+                        ),
+                        dados={
+                            "alerta_processamento": True,
+                            "marco_minutos": 0,
+                            "nivel": "informacao",
+                            "titulo": (
+                                "Processamento iniciado no SINAN"
+                            ),
+                            "texto": (
+                                "A disponibilização dos arquivos pode "
+                                "levar alguns minutos devido ao tempo "
+                                "de resposta do SINAN. O ArboHub "
+                                "continuará acompanhando automaticamente "
+                                "e você pode seguir usando o computador."
+                            ),
+                            "permitir_modo_manual": False,
+                            "agravos_processados": tuple(concluidos),
+                            "agravos_pendentes": tuple(pendentes)
+                        }
+                    )
+
+                marcos = (
+                    (
+                        60,
+                        1,
+                        "informacao",
+                        "O processamento pode demorar um pouco",
+                        (
+                            "As exportações continuam sendo preparadas "
+                            "pelo SINAN. O acompanhamento permanece "
+                            "automático e você pode continuar suas "
+                            "atividades normalmente."
+                        ),
+                        False
                     ),
-                    intervalo_segundos=(
-                        intervalo_consulta_segundos
+                    (
+                        300,
+                        5,
+                        "aviso",
+                        "Processamento mais lento que o normal",
+                        (
+                            "Uma ou mais exportações ainda não estão "
+                            "disponíveis. O ArboHub continua verificando "
+                            "e processará imediatamente qualquer arquivo "
+                            "que ficar pronto."
+                        ),
+                        False
                     ),
-                    tempo_limite_segundos=(
-                        tempo_limite_segundos
+                    (
+                        600,
+                        10,
+                        "aviso",
+                        "A exportação continua pendente",
+                        (
+                            "O tempo de resposta do SINAN está acima do "
+                            "habitual. O acompanhamento continuará até "
+                            "o limite de 20 minutos."
+                        ),
+                        False
+                    )
+                )
+
+                for (
+                    segundos,
+                    minutos,
+                    nivel,
+                    titulo,
+                    texto,
+                    permitir_manual
+                ) in marcos:
+                    if (
+                        tempo_decorrido >= segundos
+                        and minutos not in alertas_emitidos
+                    ):
+                        alertas_emitidos.add(minutos)
+                        self._emitir(
+                            ao_evento=ao_evento,
+                            etapa=self.ETAPA_PROCESSAMENTO,
+                            estado=self.ESTADO_EM_ANDAMENTO,
+                            mensagem=titulo,
+                            dados={
+                                "alerta_processamento": True,
+                                "marco_minutos": minutos,
+                                "nivel": nivel,
+                                "titulo": titulo,
+                                "texto": texto,
+                                "permitir_modo_manual": permitir_manual,
+                                "agravos_processados": tuple(concluidos),
+                                "agravos_pendentes": tuple(pendentes)
+                            }
+                        )
+
+            processamento = exportacao.aguardar_solicitacoes_prontas(
+                numero_dengue=numero_dengue,
+                numero_chikungunya=numero_chikungunya,
+                intervalo_segundos=intervalo_consulta_segundos,
+                tempo_limite_segundos=tempo_limite_segundos,
+                ao_atualizar=ao_atualizar,
+                cancelado=cancelado,
+                modo_manual_ativo=modo_manual_ativo
+            )
+
+            if not processamento["ambas_prontas"]:
+                try:
+                    self.arquivos_service.excluir_pasta_lote(
+                        pasta_lote
+                    )
+                except Exception:
+                    pass
+
+                pendentes = [
+                    configuracao_agravos[chave]["rotulo"]
+                    for chave in configuracao_agravos
+                    if chave not in agravos_processados
+                ]
+                concluidos = [
+                    configuracao_agravos[chave]["rotulo"]
+                    for chave in configuracao_agravos
+                    if chave in agravos_processados
+                ]
+
+                raise ProcessamentoBasesPendente(
+                    (
+                        "O acompanhamento automático chegou ao limite "
+                        "de 20 minutos. Informe sua supervisora sobre "
+                        "a exportação que continua indisponível e use "
+                        "a correção manual quando o arquivo for obtido."
                     ),
-                    ao_atualizar=ao_atualizar,
+                    dados={
+                        "tempo_decorrido_segundos": processamento[
+                            "tempo_decorrido_segundos"
+                        ],
+                        "agravos_processados": tuple(concluidos),
+                        "agravos_pendentes": tuple(pendentes),
+                        "dengue": processamento["dengue"],
+                        "chikungunya": processamento["chikungunya"],
+                        "correcao_manual_disponivel": bool(pendentes),
+                        "data_referencia": data_referencia.isoformat()
+                    }
+                )
+
+            # A última consulta pode indicar os dois links prontos.
+            # Garante o processamento de algum agravo que ainda não
+            # tenha sido tratado dentro do callback.
+            for chave, configuracao in configuracao_agravos.items():
+                if chave in agravos_processados:
+                    continue
+                self._baixar_e_distribuir_agravo(
+                    exportacao=exportacao,
+                    numero_solicitacao=configuracao["numero"],
+                    agravo=configuracao["agravo_arquivo"],
+                    rotulo=configuracao["rotulo"],
+                    pasta_lote=pasta_lote,
+                    data_referencia=data_referencia,
+                    atualizar_pastas_teste=atualizar_pastas_teste,
+                    atualizar_bancos_atuais=atualizar_bancos_atuais,
+                    ao_evento=ao_evento,
                     cancelado=cancelado
                 )
-            )
+                agravos_processados.add(chave)
+
+            try:
+                self.arquivos_service.excluir_pasta_lote(
+                    pasta_lote
+                )
+            except Exception:
+                pass
 
             self._emitir(
                 ao_evento=ao_evento,
                 etapa=self.ETAPA_PROCESSAMENTO,
                 estado=self.ESTADO_CONCLUIDA,
-                mensagem=(
-                    "As duas exportações estão prontas."
-                ),
+                mensagem="As duas exportações estão prontas e processadas.",
                 dados={
-                    "tentativas":
-                        processamento["tentativas"],
-                    "tempo_decorrido_segundos":
-                        processamento[
-                            "tempo_decorrido_segundos"
-                        ]
+                    "tentativas": processamento["tentativas"],
+                    "tempo_decorrido_segundos": processamento[
+                        "tempo_decorrido_segundos"
+                    ]
                 }
-            )
-
-            self._verificar_cancelamento(
-                cancelado
-            )
-
-            pasta_lote = (
-                self.arquivos_service.criar_pasta_lote(
-                    lote_id=lote["lote_id"],
-                    data_referencia=data_referencia
-                )
-            )
-
-            self._emitir(
-                ao_evento=ao_evento,
-                etapa=self.ETAPA_DOWNLOAD,
-                estado=self.ESTADO_INICIADA,
-                mensagem=(
-                    "Baixando e validando os dois ZIPs."
-                ),
-                dados={
-                    "pasta_temporaria": pasta_lote
-                }
-            )
-
-            temporario_dengue = (
-                self.arquivos_service.caminho_temporario(
-                    pasta_lote=pasta_lote,
-                    agravo=(
-                        ArquivosExportacaoDbfService
-                        .AGRAVO_DENGUE
-                    )
-                )
-            )
-
-            exportacao.baixar_exportacao_dbf(
-                numero_solicitacao=numero_dengue,
-                caminho_destino=temporario_dengue
-            )
-
-            dengue = (
-                self.arquivos_service.validar_e_finalizar(
-                    caminho_temporario=temporario_dengue,
-                    pasta_lote=pasta_lote,
-                    agravo=(
-                        ArquivosExportacaoDbfService
-                        .AGRAVO_DENGUE
-                    ),
-                    data_referencia=data_referencia
-                )
-            )
-
-            self._verificar_cancelamento(
-                cancelado
-            )
-
-            temporario_chikungunya = (
-                self.arquivos_service.caminho_temporario(
-                    pasta_lote=pasta_lote,
-                    agravo=(
-                        ArquivosExportacaoDbfService
-                        .AGRAVO_CHIKUNGUNYA
-                    )
-                )
-            )
-
-            exportacao.baixar_exportacao_dbf(
-                numero_solicitacao=numero_chikungunya,
-                caminho_destino=temporario_chikungunya
-            )
-
-            chikungunya = (
-                self.arquivos_service.validar_e_finalizar(
-                    caminho_temporario=temporario_chikungunya,
-                    pasta_lote=pasta_lote,
-                    agravo=(
-                        ArquivosExportacaoDbfService
-                        .AGRAVO_CHIKUNGUNYA
-                    ),
-                    data_referencia=data_referencia
-                )
             )
 
             self._emitir(
@@ -1041,66 +1216,33 @@ class RotinaBasesService:
                 etapa=self.ETAPA_DOWNLOAD,
                 estado=self.ESTADO_CONCLUIDA,
                 mensagem=(
-                    "Os dois ZIPs foram baixados e validados."
-                ),
-                dados={
-                    "dengue": dengue["nome"],
-                    "chikungunya":
-                        chikungunya["nome"]
+                    "Os dois ZIPs foram baixados, identificados e "
+                    "validados."
+                )
+            )
+
+            resultado_historico = {
+                "reutilizado": False,
+                "download_realizado": True,
+                "dengue": {
+                    "caminho": caminhos_historico["dengue"]
+                },
+                "chikungunya": {
+                    "caminho": caminhos_historico["chikungunya"]
                 }
-            )
-
-            self._verificar_cancelamento(
-                cancelado
-            )
-
-            self._emitir(
-                ao_evento=ao_evento,
-                etapa=self.ETAPA_HISTORICO,
-                estado=self.ESTADO_INICIADA,
-                mensagem=(
-                    "Arquivando a dupla no histórico."
-                )
-            )
-
-            resultado_historico = (
-                self.arquivos_service.arquivar_lote(
-                    caminho_dengue=dengue["caminho"],
-                    caminho_chikungunya=(
-                        chikungunya["caminho"]
-                    ),
-                    pasta_lote=pasta_lote,
-                    data_referencia=data_referencia,
-                    substituir_existentes=(
-                        substituir_historico
-                    )
-                )
-            )
-
-            resultado_historico[
-                "reutilizado"
-            ] = False
-            resultado_historico[
-                "download_realizado"
-            ] = True
+            }
 
             self._emitir(
                 ao_evento=ao_evento,
                 etapa=self.ETAPA_HISTORICO,
                 estado=self.ESTADO_CONCLUIDA,
                 mensagem=(
-                    "Os ZIPs foram arquivados e o staging "
-                    "de download foi removido."
+                    "Os ZIPs de Dengue e Chikungunya estão nas "
+                    "respectivas pastas do histórico."
                 ),
                 dados={
-                    "dengue":
-                        resultado_historico[
-                            "dengue"
-                        ]["caminho"],
-                    "chikungunya":
-                        resultado_historico[
-                            "chikungunya"
-                        ]["caminho"]
+                    "dengue": caminhos_historico["dengue"],
+                    "chikungunya": caminhos_historico["chikungunya"]
                 }
             )
 
@@ -1286,6 +1428,361 @@ class RotinaBasesService:
         )
 
         return resultado_final
+
+    def processar_correcao_manual(
+        self,
+        caminho_zip: str | Path,
+        agravos_pendentes: tuple[str, ...] | list[str],
+        data_referencia: date | None = None,
+        atualizar_pastas_teste: bool = True,
+        atualizar_bancos_atuais: bool = True,
+        ao_evento: CallbackEvento | None = None,
+        cancelado: CallbackCancelamento | None = None
+    ) -> dict[str, object]:
+        """
+        Valida e instala um ZIP obtido manualmente para resolver
+        uma pendência de processamento do SINAN.
+
+        O arquivo não é aceito apenas pela extensão. O conteúdo do
+        ZIP é validado e o agravo é identificado por DENGON ou
+        CHIKON antes de qualquer cópia ou substituição.
+        """
+
+        data_referencia = (
+            data_referencia
+            or date.today()
+        )
+        self._verificar_cancelamento(
+            cancelado
+        )
+
+        identificacao = (
+            self.arquivos_service
+            .identificar_agravo_zip(
+                caminho_zip
+            )
+        )
+        agravo = str(
+            identificacao["agravo"]
+        )
+
+        rotulos = {
+            ArquivosExportacaoDbfService.AGRAVO_DENGUE:
+                "Dengue",
+            ArquivosExportacaoDbfService.AGRAVO_CHIKUNGUNYA:
+                "Chikungunya"
+        }
+
+        pendentes_normalizados: set[str] = set()
+
+        for item in agravos_pendentes:
+            valor = str(item).strip().casefold()
+
+            if valor == "dengue":
+                pendentes_normalizados.add(
+                    ArquivosExportacaoDbfService
+                    .AGRAVO_DENGUE
+                )
+            elif valor in {
+                "chikungunya",
+                "chiku"
+            }:
+                pendentes_normalizados.add(
+                    ArquivosExportacaoDbfService
+                    .AGRAVO_CHIKUNGUNYA
+                )
+
+        if not pendentes_normalizados:
+            raise RuntimeError(
+                "Não há um agravo pendente registrado para "
+                "receber a correção manual."
+            )
+
+        if agravo not in pendentes_normalizados:
+            esperado = ", ".join(
+                rotulos[item]
+                for item in sorted(
+                    pendentes_normalizados
+                )
+            )
+            raise RuntimeError(
+                "O ZIP selecionado pertence a "
+                f"{rotulos[agravo]}, mas a pendência atual é: "
+                f"{esperado}."
+            )
+
+        rotulo = rotulos[agravo]
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=self.ESTADO_EM_ANDAMENTO,
+            mensagem=(
+                f"Validando a correção manual de {rotulo}."
+            ),
+            dados={
+                "correcao_manual": True,
+                "agravo": agravo,
+                "rotulo": rotulo
+            }
+        )
+
+        historico = (
+            self.arquivos_service
+            .arquivar_agravo(
+                caminho_zip=caminho_zip,
+                agravo=agravo,
+                data_referencia=data_referencia,
+                substituir_existente=False
+            )
+        )
+
+        self._finalizar_agravo_historico(
+            agravo=agravo,
+            rotulo=rotulo,
+            data_referencia=data_referencia,
+            atualizar_pastas_teste=(
+                atualizar_pastas_teste
+            ),
+            atualizar_bancos_atuais=(
+                atualizar_bancos_atuais
+            ),
+            ao_evento=ao_evento,
+            reutilizado=bool(
+                historico["reutilizado"]
+            )
+        )
+
+        caminhos = {
+            ArquivosExportacaoDbfService.AGRAVO_DENGUE:
+                self.arquivos_service.caminho_historico(
+                    agravo=(
+                        ArquivosExportacaoDbfService
+                        .AGRAVO_DENGUE
+                    ),
+                    data_referencia=data_referencia
+                ),
+            ArquivosExportacaoDbfService.AGRAVO_CHIKUNGUNYA:
+                self.arquivos_service.caminho_historico(
+                    agravo=(
+                        ArquivosExportacaoDbfService
+                        .AGRAVO_CHIKUNGUNYA
+                    ),
+                    data_referencia=data_referencia
+                )
+        }
+
+        ainda_pendentes = [
+            item
+            for item, caminho in caminhos.items()
+            if not caminho.exists()
+        ]
+
+        if ainda_pendentes:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_PROCESSAMENTO,
+                estado=self.ESTADO_EM_ANDAMENTO,
+                mensagem=(
+                    f"A correção manual de {rotulo} foi validada. "
+                    "Ainda existe outra exportação pendente."
+                ),
+                dados={
+                    "arquivo_processado": True,
+                    "correcao_manual": True,
+                    "agravo": agravo,
+                    "rotulo": rotulo,
+                    "agravos_pendentes": tuple(
+                        rotulos[item]
+                        for item in ainda_pendentes
+                    )
+                }
+            )
+
+            return {
+                "concluida": False,
+                "agravo_corrigido": agravo,
+                "rotulo_corrigido": rotulo,
+                "agravos_pendentes": tuple(
+                    rotulos[item]
+                    for item in ainda_pendentes
+                ),
+                "dados_de_pacientes_lidos": False
+            }
+
+        validacao_final = (
+            self.arquivos_service
+            .validar_extracao_historico(
+                data_referencia=data_referencia
+            )
+        )
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=self.ESTADO_CONCLUIDA,
+            mensagem=(
+                f"A correção manual de {rotulo} foi validada e "
+                "a dupla diária está completa."
+            ),
+            dados={
+                "arquivo_processado": True,
+                "correcao_manual": True,
+                "agravo": agravo,
+                "rotulo": rotulo
+            }
+        )
+
+        return {
+            "concluida": True,
+            "agravo_corrigido": agravo,
+            "rotulo_corrigido": rotulo,
+            "validacao": validacao_final,
+            "agravos_pendentes": (),
+            "dados_de_pacientes_lidos": False
+        }
+
+    def _resultado_exportacao_pronto(
+        self,
+        resultado: dict[str, object]
+    ) -> bool:
+        return (
+            bool(resultado.get("encontrada"))
+            and bool(resultado.get("processamento_concluido"))
+            and bool(resultado.get("link_disponivel"))
+        )
+
+    def _baixar_e_distribuir_agravo(
+        self,
+        exportacao: ExportacaoBasesDbf,
+        numero_solicitacao: str,
+        agravo: str,
+        rotulo: str,
+        pasta_lote: Path,
+        data_referencia: date,
+        atualizar_pastas_teste: bool,
+        atualizar_bancos_atuais: bool,
+        ao_evento: CallbackEvento | None,
+        cancelado: CallbackCancelamento | None
+    ):
+        """
+        Processa imediatamente um agravo disponível, mesmo quando
+        a outra exportação ainda está em processamento.
+        """
+
+        self._verificar_cancelamento(cancelado)
+        temporario = self.arquivos_service.caminho_temporario(
+            pasta_lote=pasta_lote,
+            agravo=agravo
+        )
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=self.ESTADO_EM_ANDAMENTO,
+            mensagem=(
+                f"{rotulo} ficou disponível. Baixando e "
+                "validando o arquivo agora."
+            ),
+            dados={
+                "arquivo_disponivel": True,
+                "agravo": agravo,
+                "rotulo": rotulo
+            }
+        )
+
+        exportacao.baixar_exportacao_dbf(
+            numero_solicitacao=numero_solicitacao,
+            caminho_destino=temporario
+        )
+        validado = self.arquivos_service.validar_e_finalizar(
+            caminho_temporario=temporario,
+            pasta_lote=pasta_lote,
+            agravo=agravo,
+            data_referencia=data_referencia
+        )
+        historico = self.arquivos_service.arquivar_agravo(
+            caminho_zip=validado["caminho"],
+            agravo=agravo,
+            data_referencia=data_referencia,
+            substituir_existente=False
+        )
+
+        self._finalizar_agravo_historico(
+            agravo=agravo,
+            rotulo=rotulo,
+            data_referencia=data_referencia,
+            atualizar_pastas_teste=atualizar_pastas_teste,
+            atualizar_bancos_atuais=atualizar_bancos_atuais,
+            ao_evento=ao_evento,
+            reutilizado=bool(historico["reutilizado"])
+        )
+
+    def _finalizar_agravo_historico(
+        self,
+        agravo: str,
+        rotulo: str,
+        data_referencia: date,
+        atualizar_pastas_teste: bool,
+        atualizar_bancos_atuais: bool,
+        ao_evento: CallbackEvento | None,
+        reutilizado: bool
+    ):
+        validacao = (
+            self.arquivos_service
+            .validar_extracao_agravo_historico(
+                agravo=agravo,
+                data_referencia=data_referencia
+            )
+        )
+        resultado_teste = None
+        resultado_atual = None
+
+        if atualizar_pastas_teste:
+            resultado_teste = (
+                self.arquivos_service
+                .instalar_dbf_agravo_pasta_teste(
+                    agravo=agravo,
+                    data_referencia=data_referencia
+                )
+            )
+
+        if atualizar_bancos_atuais:
+            resultado_atual = (
+                self.arquivos_service
+                .instalar_dbf_agravo_bancos_atuais(
+                    agravo=agravo,
+                    data_referencia=data_referencia
+                )
+            )
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=self.ESTADO_EM_ANDAMENTO,
+            mensagem=(
+                f"{rotulo} foi identificado, validado e colocado "
+                "nas pastas correspondentes. A outra exportação "
+                "continuará sendo acompanhada."
+            ),
+            dados={
+                "arquivo_processado": True,
+                "agravo": agravo,
+                "rotulo": rotulo,
+                "historico_reutilizado": reutilizado,
+                "nome_dbf": validacao["nome_interno"],
+                "destino_teste": (
+                    resultado_teste["destino"]
+                    if resultado_teste is not None
+                    else None
+                ),
+                "destino_bancos_atuais": (
+                    resultado_atual["destino"]
+                    if resultado_atual is not None
+                    else None
+                )
+            }
+        )
 
     def _verificar_cancelamento(
         self,

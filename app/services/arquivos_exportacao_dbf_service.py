@@ -352,6 +352,111 @@ class ArquivosExportacaoDbfService:
             "zip_valido": True
         }
 
+    def identificar_agravo_zip(
+        self,
+        caminho_zip: str | Path
+    ) -> dict[str, object]:
+        """
+        Identifica com segurança se um ZIP pertence a Dengue ou
+        Chikungunya sem ler registros internos dos DBFs.
+
+        A identificação considera somente os nomes internos dos
+        arquivos e exige exatamente um dos prefixos esperados:
+        DENGON ou CHIKON.
+        """
+
+        caminho_zip = Path(
+            caminho_zip
+        ).expanduser().resolve()
+
+        if not caminho_zip.exists():
+            raise FileNotFoundError(
+                "O arquivo ZIP não foi encontrado: "
+                f"{caminho_zip}"
+            )
+
+        if not caminho_zip.is_file():
+            raise RuntimeError(
+                "O caminho selecionado não corresponde a um "
+                f"arquivo: {caminho_zip}"
+            )
+
+        tamanho = caminho_zip.stat().st_size
+
+        if tamanho <= 0:
+            raise RuntimeError(
+                "O arquivo selecionado está vazio."
+            )
+
+        try:
+            with ZipFile(
+                caminho_zip,
+                "r"
+            ) as arquivo_zip:
+                arquivo_ruim = arquivo_zip.testzip()
+
+                if arquivo_ruim is not None:
+                    raise RuntimeError(
+                        "O ZIP apresentou falha de integridade "
+                        f"no item {arquivo_ruim!r}."
+                    )
+
+                nomes = arquivo_zip.namelist()
+
+        except BadZipFile as erro:
+            raise RuntimeError(
+                "O arquivo selecionado não é um ZIP válido."
+            ) from erro
+
+        dbfs = [
+            Path(nome).name
+            for nome in nomes
+            if Path(nome).suffix.casefold() == ".dbf"
+        ]
+
+        correspondencias: dict[str, list[str]] = {}
+
+        for agravo, prefixo in self.PREFIXOS_DBF.items():
+            encontrados = [
+                nome
+                for nome in dbfs
+                if nome.upper().startswith(prefixo)
+            ]
+
+            if encontrados:
+                correspondencias[agravo] = encontrados
+
+        if not correspondencias:
+            encontrados = (
+                ", ".join(dbfs)
+                if dbfs
+                else "nenhum DBF"
+            )
+            raise RuntimeError(
+                "O ZIP não contém um DBF iniciado por DENGON "
+                "ou CHIKON. "
+                f"Encontrado: {encontrados}."
+            )
+
+        if len(correspondencias) > 1:
+            raise RuntimeError(
+                "O ZIP contém arquivos de Dengue e Chikungunya "
+                "ao mesmo tempo. Selecione o arquivo individual "
+                "correspondente ao agravo pendente."
+            )
+
+        agravo = next(iter(correspondencias))
+        prefixo = self.PREFIXOS_DBF[agravo]
+
+        return {
+            "agravo": agravo,
+            "caminho": caminho_zip,
+            "tamanho_bytes": tamanho,
+            "prefixo_confirmado": prefixo,
+            "dbfs_encontrados": correspondencias[agravo],
+            "zip_valido": True
+        }
+
     # ------------------------------------------------------------------
     # Extração segura para validação
     # ------------------------------------------------------------------
@@ -1803,6 +1908,315 @@ class ArquivosExportacaoDbfService:
             encontrados,
             key=lambda caminho: caminho.name.casefold()
         )
+
+    # ------------------------------------------------------------------
+    # Processamento seguro de um único agravo
+    # ------------------------------------------------------------------
+
+    def arquivar_agravo(
+        self,
+        caminho_zip: str | Path,
+        agravo: str,
+        data_referencia: date | None = None,
+        substituir_existente: bool = False
+    ) -> dict[str, object]:
+        """
+        Arquiva um único ZIP validado no histórico.
+
+        Esta operação é usada quando apenas uma das duas
+        exportações do SINAN fica disponível. O arquivo é validado
+        pelo prefixo esperado antes de qualquer substituição.
+        """
+
+        agravo = self._validar_agravo(agravo)
+        data_referencia = data_referencia or date.today()
+        origem = Path(caminho_zip).resolve()
+        destino = self.caminho_historico(
+            agravo=agravo,
+            data_referencia=data_referencia
+        )
+
+        self._inspecionar_zip(
+            caminho_zip=origem,
+            agravo=agravo
+        )
+
+        if destino.exists() and not substituir_existente:
+            self._inspecionar_zip(
+                caminho_zip=destino,
+                agravo=agravo
+            )
+            return {
+                "agravo": agravo,
+                "caminho": destino,
+                "reutilizado": True,
+                "arquivado": True
+            }
+
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        identificador = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        temporario = destino.parent / f".{destino.name}.novo-{identificador}"
+        backup = None
+
+        try:
+            shutil.copy2(origem, temporario)
+            self._inspecionar_zip(
+                caminho_zip=temporario,
+                agravo=agravo
+            )
+
+            if destino.exists():
+                backup = destino.parent / f".{destino.name}.backup-{identificador}"
+                os.replace(destino, backup)
+
+            os.replace(temporario, destino)
+            self._inspecionar_zip(
+                caminho_zip=destino,
+                agravo=agravo
+            )
+
+            if backup is not None and backup.exists():
+                backup.unlink()
+
+            return {
+                "agravo": agravo,
+                "caminho": destino,
+                "reutilizado": False,
+                "arquivado": True
+            }
+
+        except Exception:
+            try:
+                if temporario.exists():
+                    temporario.unlink()
+            except Exception:
+                pass
+
+            try:
+                if destino.exists() and backup is not None:
+                    destino.unlink()
+            except Exception:
+                pass
+
+            try:
+                if backup is not None and backup.exists():
+                    os.replace(backup, destino)
+            except Exception:
+                pass
+
+            raise
+
+    def validar_extracao_agravo_historico(
+        self,
+        agravo: str,
+        data_referencia: date | None = None
+    ) -> dict[str, object]:
+        """
+        Valida a extração de apenas um agravo sem interpretar o DBF.
+        """
+
+        agravo = self._validar_agravo(agravo)
+        data_referencia = data_referencia or date.today()
+        caminho_zip = self.caminho_historico(
+            agravo=agravo,
+            data_referencia=data_referencia
+        )
+
+        if not caminho_zip.exists():
+            raise FileNotFoundError(
+                "O ZIP histórico não foi encontrado: "
+                f"{caminho_zip}"
+            )
+
+        pasta = self.criar_pasta_extracao(
+            data_referencia=data_referencia
+        )
+        sucesso = False
+
+        try:
+            nome = (
+                f"validacao_dengue_{data_referencia.year}.dbf"
+                if agravo == self.AGRAVO_DENGUE
+                else f"validacao_chiku_{data_referencia.year}.dbf"
+            )
+            resultado = self.extrair_dbf_para_staging(
+                caminho_zip=caminho_zip,
+                pasta_destino=pasta,
+                agravo=agravo,
+                nome_destino=nome
+            )
+            sucesso = True
+            return resultado
+        finally:
+            if sucesso:
+                self.excluir_pasta_lote(pasta)
+
+    def instalar_dbf_agravo_pasta_teste(
+        self,
+        agravo: str,
+        data_referencia: date | None = None,
+        pasta_ab1: str | Path | None = None,
+        pasta_ab2: str | Path | None = None
+    ) -> dict[str, object]:
+        """Instala com backup apenas o DBF de um agravo."""
+
+        agravo = self._validar_agravo(agravo)
+        data_referencia = data_referencia or date.today()
+        destinos = self.caminhos_pastas_teste(
+            data_referencia=data_referencia,
+            pasta_ab1=pasta_ab1,
+            pasta_ab2=pasta_ab2
+        )
+        destino = destinos[agravo]
+
+        return self._instalar_dbf_individual(
+            agravo=agravo,
+            data_referencia=data_referencia,
+            destino=destino,
+            localizador_anteriores=lambda pasta, item_agravo: (
+                self._localizar_arquivos_anteriores_teste(destino)
+            )
+        )
+
+    def instalar_dbf_agravo_bancos_atuais(
+        self,
+        agravo: str,
+        data_referencia: date | None = None,
+        pasta_bancos_atuais: str | Path | None = None
+    ) -> dict[str, object]:
+        """Instala com backup apenas o banco atual de um agravo."""
+
+        agravo = self._validar_agravo(agravo)
+        data_referencia = data_referencia or date.today()
+        destinos = self.caminhos_bancos_atuais(
+            data_referencia=data_referencia,
+            pasta_bancos_atuais=pasta_bancos_atuais
+        )
+        destino = destinos[agravo]
+
+        return self._instalar_dbf_individual(
+            agravo=agravo,
+            data_referencia=data_referencia,
+            destino=destino,
+            localizador_anteriores=(
+                self._localizar_bancos_atuais_anteriores
+            )
+        )
+
+    def _instalar_dbf_individual(
+        self,
+        agravo: str,
+        data_referencia: date,
+        destino: Path,
+        localizador_anteriores
+    ) -> dict[str, object]:
+        """
+        Instala um DBF individual com temporário, SHA-256,
+        backup e restauração.
+        """
+
+        destino = Path(destino)
+        pasta_destino = destino.parent
+
+        if not pasta_destino.exists():
+            raise FileNotFoundError(
+                "A pasta de destino não foi encontrada: "
+                f"{pasta_destino}"
+            )
+        if not pasta_destino.is_dir():
+            raise NotADirectoryError(
+                "O destino informado não é uma pasta: "
+                f"{pasta_destino}"
+            )
+
+        caminho_zip = self.caminho_historico(
+            agravo=agravo,
+            data_referencia=data_referencia
+        )
+        pasta_staging = self.criar_pasta_extracao(
+            data_referencia=data_referencia
+        )
+        identificador = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        temporario_destino = pasta_destino / (
+            f".{destino.name}.novo-{identificador}"
+        )
+        backups: list[tuple[Path, Path]] = []
+        instalado = False
+        sucesso = False
+
+        try:
+            extraido = self.extrair_dbf_para_staging(
+                caminho_zip=caminho_zip,
+                pasta_destino=pasta_staging,
+                agravo=agravo,
+                nome_destino=destino.name
+            )
+            origem = Path(extraido["caminho_temporario"])
+
+            shutil.copy2(origem, temporario_destino)
+            self._validar_copia_identica(
+                origem=origem,
+                copia=temporario_destino
+            )
+
+            anteriores = localizador_anteriores(
+                pasta_destino,
+                agravo
+            )
+
+            for anterior in anteriores:
+                backup = anterior.parent / (
+                    f".{anterior.name}.backup-{identificador}"
+                )
+                os.replace(anterior, backup)
+                backups.append((anterior, backup))
+
+            os.replace(temporario_destino, destino)
+            instalado = True
+            self._validar_copia_identica(
+                origem=origem,
+                copia=destino
+            )
+
+            for _, backup in backups:
+                if backup.exists():
+                    backup.unlink()
+
+            sucesso = True
+            return {
+                "agravo": agravo,
+                "destino": destino,
+                "tamanho_bytes": destino.stat().st_size,
+                "sha256": self._sha256_arquivo(destino),
+                "instalado": True,
+                "registros_lidos": False
+            }
+
+        except Exception:
+            try:
+                if instalado and destino.exists():
+                    destino.unlink()
+            except Exception:
+                pass
+
+            for anterior, backup in reversed(backups):
+                try:
+                    if backup.exists():
+                        os.replace(backup, anterior)
+                except Exception:
+                    pass
+
+            try:
+                if temporario_destino.exists():
+                    temporario_destino.unlink()
+            except Exception:
+                pass
+
+            raise
+
+        finally:
+            if sucesso:
+                self.excluir_pasta_lote(pasta_staging)
 
     # ------------------------------------------------------------------
     # Limpeza

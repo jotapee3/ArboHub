@@ -162,6 +162,12 @@ class SinanPage(ctk.CTkFrame):
             for etapa in self.ETAPAS_FLUXO_BASES
         }
         self.mensagens_etapas_bases = {}
+        self.estado_arquivos_bases = {
+            "dengue": False,
+            "chikungunya": False
+        }
+        self._correcao_manual_bases_habilitada = False
+        self._agravos_pendentes_bases: list[str] = []
 
         self.componentes_linha_tempo = {}
         self.componentes_linha_tempo_bases = {}
@@ -2505,7 +2511,7 @@ class SinanPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             indicador,
-            text="📂",
+            text="🔄",
             font=ctk.CTkFont(
                 family="Segoe UI Emoji",
                 size=18
@@ -2807,6 +2813,113 @@ class SinanPage(ctk.CTkFrame):
             self.botao_resetar_bases
         ]
 
+        self.painel_alerta_processamento = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        self.painel_alerta_processamento.grid(
+            row=6,
+            column=0,
+            sticky="ew",
+            padx=22,
+            pady=(4, 12)
+        )
+        self.painel_alerta_processamento.grid_columnconfigure(
+            1,
+            weight=1
+        )
+
+        self.label_icone_alerta_bases = ctk.CTkLabel(
+            self.painel_alerta_processamento,
+            text="i",
+            width=32,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=16,
+                weight="bold"
+            ),
+            text_color=Colors.PRIMARY
+        )
+        self.label_icone_alerta_bases.grid(
+            row=0,
+            column=0,
+            rowspan=2,
+            padx=(12, 8),
+            pady=12
+        )
+
+        self.label_titulo_alerta_bases = ctk.CTkLabel(
+            self.painel_alerta_processamento,
+            text="Acompanhamento do SINAN",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        )
+        self.label_titulo_alerta_bases.grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 10),
+            pady=(11, 2)
+        )
+
+        self.label_texto_alerta_bases = ctk.CTkLabel(
+            self.painel_alerta_processamento,
+            text="",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=620
+        )
+        self.label_texto_alerta_bases.grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(0, 10),
+            pady=(0, 11)
+        )
+
+        self.botao_correcao_manual_bases = ctk.CTkButton(
+            self.painel_alerta_processamento,
+            text="Confirmar correção manual",
+            command=self.selecionar_correcao_manual_bases,
+            width=185,
+            height=34,
+            corner_radius=6,
+            state="disabled",
+            fg_color="transparent",
+            hover_color=Colors.BUTTON_HOVER,
+            border_width=1,
+            border_color=Colors.BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10,
+                weight="bold"
+            )
+        )
+        self.botao_correcao_manual_bases.grid(
+            row=0,
+            column=2,
+            rowspan=2,
+            sticky="e",
+            padx=(8, 12),
+            pady=12
+        )
+
+        self.painel_alerta_processamento.grid_remove()
+
         self.label_checkpoint_bases = ctk.CTkLabel(
             painel,
             text="○ Atualização das bases pendente",
@@ -2819,7 +2932,7 @@ class SinanPage(ctk.CTkFrame):
             anchor="w"
         )
         self.label_checkpoint_bases.grid(
-            row=6,
+            row=7,
             column=0,
             sticky="ew",
             padx=22,
@@ -4513,6 +4626,50 @@ class SinanPage(ctk.CTkFrame):
     ):
         tipo = evento.get("tipo")
 
+        if (
+            tipo
+            == AtualizacaoBasesService.EVENTO_ALERTA_PROCESSAMENTO
+        ):
+            dados = evento.get("dados", {})
+            self._mostrar_alerta_processamento_bases(
+                dados=dados
+            )
+            self.registrar_operacao(
+                evento.get(
+                    "mensagem",
+                    "Aviso de processamento do SINAN."
+                )
+            )
+            try:
+                self.winfo_toplevel().bell()
+            except Exception:
+                pass
+            return
+
+        if tipo == AtualizacaoBasesService.EVENTO_CORRECAO_MANUAL:
+            mensagem = evento.get(
+                "mensagem",
+                "Validando a correção manual."
+            )
+            self.botao_correcao_manual_bases.configure(
+                state="disabled"
+            )
+            self.label_status_base.configure(
+                text=mensagem,
+                text_color=Colors.PRIMARY
+            )
+            self.registrar_operacao(
+                mensagem
+            )
+            self._atualizar_controles_bases()
+            return
+
+        if tipo == AtualizacaoBasesService.EVENTO_PENDENTE:
+            self._tratar_processamento_pendente_bases(
+                evento
+            )
+            return
+
         if tipo == AtualizacaoBasesService.EVENTO_ETAPA:
             etapa = evento.get("etapa")
             estado_evento = evento.get(
@@ -4523,6 +4680,24 @@ class SinanPage(ctk.CTkFrame):
                 "mensagem",
                 "Etapa em andamento."
             )
+            dados = evento.get("dados", {})
+
+            if dados.get("arquivo_processado"):
+                agravo = dados.get("agravo")
+                if agravo in self.estado_arquivos_bases:
+                    self.estado_arquivos_bases[agravo] = True
+                    self._atualizar_indicador_arquivos_bases()
+
+            dengue = dados.get("dengue")
+            chikungunya = dados.get("chikungunya")
+            if isinstance(dengue, dict) and dengue.get("processado"):
+                self.estado_arquivos_bases["dengue"] = True
+            if (
+                isinstance(chikungunya, dict)
+                and chikungunya.get("processado")
+            ):
+                self.estado_arquivos_bases["chikungunya"] = True
+            self._atualizar_indicador_arquivos_bases()
 
             conversao = {
                 "iniciada": "executando",
@@ -4585,6 +4760,11 @@ class SinanPage(ctk.CTkFrame):
                 "mensagem",
                 "Atualização das bases concluída."
             )
+
+            self.estado_arquivos_bases["dengue"] = True
+            self.estado_arquivos_bases["chikungunya"] = True
+            self._atualizar_indicador_arquivos_bases()
+            self._ocultar_alerta_processamento_bases()
 
             self.etapa_bases_atual = (
                 AtualizacaoBasesService.ETAPA_FINALIZACAO
@@ -4667,6 +4847,12 @@ class SinanPage(ctk.CTkFrame):
                 evento.get("etapa")
                 or self.etapa_bases_atual
             )
+            correcao_manual = bool(
+                evento.get(
+                    "correcao_manual",
+                    False
+                )
+            )
 
             if etapa in self.estados_etapas_bases:
                 self.estados_etapas_bases[
@@ -4676,7 +4862,11 @@ class SinanPage(ctk.CTkFrame):
                     etapa
                 ] = mensagem
 
-            self.estado_bases_atual = "erro"
+            self.estado_bases_atual = (
+                "pendente"
+                if correcao_manual
+                else "erro"
+            )
             self.label_status_base.configure(
                 text=mensagem,
                 text_color=Colors.TEXT_SECONDARY
@@ -4684,22 +4874,372 @@ class SinanPage(ctk.CTkFrame):
 
             self.atualizar_linha_tempo_bases()
             self._atualizar_controles_bases()
+            self.after(
+                200,
+                self._atualizar_controles_bases
+            )
             self.registrar_operacao(
                 f"Erro na atualização das bases: {mensagem}"
             )
 
             mostrar_dialogo_arbohub(
                 master=self.winfo_toplevel(),
-                titulo="Erro na atualização das bases",
+                titulo=(
+                    "Correção manual não confirmada"
+                    if correcao_manual
+                    else "Erro na atualização das bases"
+                ),
                 mensagem=(
-                    "A rotina não foi concluída.\n\n"
-                    f"{mensagem}\n\n"
-                    "Os mecanismos de backup e restauração "
-                    "permaneceram ativos."
+                    (
+                        "O arquivo selecionado não foi aceito e "
+                        "a pendência continua aberta.\n\n"
+                        f"{mensagem}\n\n"
+                        "Selecione o ZIP correto do agravo "
+                        "pendente e tente novamente."
+                    )
+                    if correcao_manual
+                    else (
+                        "A rotina não foi concluída.\n\n"
+                        f"{mensagem}\n\n"
+                        "Os mecanismos de backup e restauração "
+                        "permaneceram ativos."
+                    )
                 ),
                 tipo="erro",
                 texto_botao="Fechar"
             )
+
+    def _mostrar_alerta_processamento_bases(
+        self,
+        dados: dict
+    ):
+        titulo = dados.get(
+            "titulo",
+            "Acompanhamento do SINAN"
+        )
+        texto = dados.get(
+            "texto",
+            "O ArboHub continua acompanhando o processamento."
+        )
+        marco = dados.get("marco_minutos")
+        nivel = dados.get(
+            "nivel",
+            "informacao"
+        )
+
+        if marco:
+            texto = (
+                f"{texto}\n"
+                f"Tempo de espera: {marco} minutos."
+            )
+
+        if nivel == "informacao":
+            cor = Colors.PRIMARY
+            icone = "i"
+        else:
+            cor = Colors.TEXT_SECONDARY
+            icone = "!"
+
+        self.painel_alerta_processamento.configure(
+            border_color=cor
+        )
+        self.label_icone_alerta_bases.configure(
+            text=icone,
+            text_color=cor
+        )
+        self.label_titulo_alerta_bases.configure(
+            text=titulo
+        )
+        self.label_texto_alerta_bases.configure(
+            text=texto
+        )
+        self.painel_alerta_processamento.grid()
+
+        # A correção manual só é liberada quando o limite de
+        # 20 minutos for atingido e houver um agravo pendente.
+        self.botao_correcao_manual_bases.configure(
+            state="disabled",
+            text="Confirmar correção manual"
+        )
+
+    def _ocultar_alerta_processamento_bases(self):
+        if not hasattr(
+            self,
+            "painel_alerta_processamento"
+        ):
+            return
+
+        self.painel_alerta_processamento.grid_remove()
+        self._correcao_manual_bases_habilitada = False
+        self._agravos_pendentes_bases = []
+        self.botao_correcao_manual_bases.configure(
+            state="disabled",
+            text="Confirmar correção manual"
+        )
+
+    def selecionar_correcao_manual_bases(self):
+        """
+        Permite selecionar o ZIP obtido manualmente depois que o
+        SINAN atingiu o limite de acompanhamento.
+
+        O clique não conclui a rotina por si só. O arquivo é
+        validado, identificado como DENGON ou CHIKON e instalado
+        apenas no destino correspondente.
+        """
+
+        if not self._correcao_manual_bases_habilitada:
+            return
+
+        if (
+            self.atualizacao_bases_service
+            .esta_em_execucao()
+        ):
+            return
+
+        texto_pendentes = (
+            ", ".join(
+                self._agravos_pendentes_bases
+            )
+            if self._agravos_pendentes_bases
+            else "o agravo pendente"
+        )
+
+        confirmou = solicitar_confirmacao_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Confirmar correção manual?",
+            mensagem=(
+                "Selecione o ZIP que foi obtido manualmente para "
+                f"resolver a pendência de {texto_pendentes}.\n\n"
+                "O ArboHub verificará a integridade do arquivo, "
+                "confirmará se ele contém DENGON ou CHIKON e "
+                "somente depois atualizará as pastas "
+                "correspondentes.\n\n"
+                "A rotina não será marcada como concluída se o "
+                "arquivo não corresponder ao agravo pendente."
+            ),
+            texto_confirmar="Selecionar ZIP",
+            texto_cancelar="Cancelar"
+        )
+
+        if not confirmou:
+            return
+
+        caminho_zip = filedialog.askopenfilename(
+            parent=self.winfo_toplevel(),
+            title=(
+                "Selecione o ZIP do agravo pendente"
+            ),
+            filetypes=(
+                ("Arquivos ZIP", "*.zip"),
+                ("Todos os arquivos", "*.*")
+            )
+        )
+
+        if not caminho_zip:
+            return
+
+        try:
+            iniciou = (
+                self.atualizacao_bases_service
+                .iniciar_correcao_manual(
+                    caminho_zip
+                )
+            )
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo=(
+                    "Não foi possível iniciar a correção"
+                ),
+                mensagem=str(erro),
+                tipo="erro",
+                texto_botao="Fechar"
+            )
+            return
+
+        if not iniciou:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Operação em andamento",
+                mensagem=(
+                    "Já existe uma operação de Bases em "
+                    "andamento. Aguarde a conclusão antes de "
+                    "selecionar outro arquivo."
+                ),
+                tipo="aviso",
+                texto_botao="Entendi"
+            )
+            return
+
+        self.botao_correcao_manual_bases.configure(
+            state="disabled"
+        )
+        self.label_status_base.configure(
+            text=(
+                "Validando o ZIP selecionado para a correção "
+                "manual."
+            ),
+            text_color=Colors.PRIMARY
+        )
+        self._atualizar_controles_bases()
+        self.registrar_operacao(
+            "Correção manual de Bases iniciada."
+        )
+
+    def _atualizar_indicador_arquivos_bases(self):
+        if not hasattr(
+            self,
+            "label_arquivos_bases"
+        ):
+            return
+
+        dengue = self.estado_arquivos_bases["dengue"]
+        chikungunya = self.estado_arquivos_bases[
+            "chikungunya"
+        ]
+
+        if dengue and chikungunya:
+            texto = "✔️ Dengue e Chikungunya disponíveis"
+            cor = Colors.SUCCESS
+        elif dengue:
+            texto = "✔️ Dengue • ◐ Chikungunya aguardando"
+            cor = Colors.PRIMARY
+        elif chikungunya:
+            texto = "◐ Dengue aguardando • ✔️ Chikungunya"
+            cor = Colors.PRIMARY
+        else:
+            texto = "○ Arquivos pendentes"
+            cor = Colors.TEXT_MUTED
+
+        self.label_arquivos_bases.configure(
+            text=texto,
+            text_color=cor
+        )
+
+    def _tratar_processamento_pendente_bases(
+        self,
+        evento: dict
+    ):
+        mensagem = evento.get(
+            "mensagem",
+            (
+                "O tempo máximo de acompanhamento foi atingido."
+            )
+        )
+        dados = evento.get("dados", {})
+        processados = list(
+            dados.get("agravos_processados", ())
+        )
+        pendentes = list(
+            dados.get("agravos_pendentes", ())
+        )
+
+        for rotulo in processados:
+            chave = (
+                "dengue"
+                if str(rotulo).casefold() == "dengue"
+                else "chikungunya"
+            )
+            self.estado_arquivos_bases[chave] = True
+
+        self._agravos_pendentes_bases = [
+            str(item)
+            for item in pendentes
+        ]
+        self._correcao_manual_bases_habilitada = bool(
+            pendentes
+            and dados.get(
+                "correcao_manual_disponivel",
+                True
+            )
+        )
+
+        self._atualizar_indicador_arquivos_bases()
+        self.estado_bases_atual = "pendente"
+        self.etapa_bases_atual = (
+            AtualizacaoBasesService.ETAPA_PROCESSAMENTO
+        )
+        self.estados_etapas_bases[
+            AtualizacaoBasesService.ETAPA_PROCESSAMENTO
+        ] = "erro"
+        self.mensagens_etapas_bases[
+            AtualizacaoBasesService.ETAPA_PROCESSAMENTO
+        ] = mensagem
+
+        texto_processados = (
+            ", ".join(processados)
+            if processados
+            else "Nenhum arquivo"
+        )
+        texto_pendentes = (
+            ", ".join(pendentes)
+            if pendentes
+            else "Nenhum"
+        )
+
+        self.painel_alerta_processamento.grid()
+        self.painel_alerta_processamento.configure(
+            border_color=Colors.TEXT_SECONDARY
+        )
+        self.label_icone_alerta_bases.configure(
+            text="!",
+            text_color=Colors.TEXT_SECONDARY
+        )
+        self.label_titulo_alerta_bases.configure(
+            text="Pendência na atualização das bases"
+        )
+        self.label_texto_alerta_bases.configure(
+            text=(
+                f"{mensagem}\n\n"
+                f"Processado: {texto_processados}.\n"
+                f"Ainda pendente: {texto_pendentes}."
+            )
+        )
+        self.botao_correcao_manual_bases.configure(
+            state=(
+                "normal"
+                if self._correcao_manual_bases_habilitada
+                else "disabled"
+            ),
+            text="Confirmar correção manual"
+        )
+
+        self.label_status_base.configure(
+            text=mensagem,
+            text_color=Colors.TEXT_SECONDARY
+        )
+        self.atualizar_linha_tempo_bases()
+        self._atualizar_controles_bases()
+        self.after(
+            200,
+            self._atualizar_controles_bases
+        )
+        self.registrar_operacao(mensagem)
+
+        try:
+            self.winfo_toplevel().bell()
+        except Exception:
+            pass
+
+        mostrar_dialogo_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Exportação ainda indisponível",
+            mensagem=(
+                "O SINAN não disponibilizou todos os arquivos "
+                "dentro de 20 minutos.\n\n"
+                f"Arquivos concluídos: {texto_processados}.\n"
+                f"Arquivos pendentes: {texto_pendentes}.\n\n"
+                "Os arquivos que ficaram disponíveis já foram "
+                "identificados, validados e colocados nas pastas "
+                "correspondentes.\n\n"
+                "Informe sua supervisora sobre a pendência. "
+                "Quando o ZIP faltante for obtido manualmente, "
+                "use “Confirmar correção manual” para que o "
+                "ArboHub valide e finalize a rotina."
+            ),
+            tipo="aviso",
+            texto_botao="Entendi"
+        )
 
     def _atualizar_controles_bases(
         self,
@@ -4735,6 +5275,9 @@ class SinanPage(ctk.CTkFrame):
             self.botao_resetar_bases.configure(
                 state="disabled"
             )
+            self.botao_correcao_manual_bases.configure(
+                state="disabled"
+            )
             return
 
         self.botao_baixar.configure(
@@ -4753,6 +5296,13 @@ class SinanPage(ctk.CTkFrame):
         )
         self.botao_resetar_bases.configure(
             state="normal"
+        )
+        self.botao_correcao_manual_bases.configure(
+            state=(
+                "normal"
+                if self._correcao_manual_bases_habilitada
+                else "disabled"
+            )
         )
 
     def _atualizar_controles_automacao(
@@ -5293,6 +5843,12 @@ class SinanPage(ctk.CTkFrame):
             for etapa in self.ETAPAS_FLUXO_BASES
         }
         self.mensagens_etapas_bases = {}
+        self.estado_arquivos_bases = {
+            "dengue": False,
+            "chikungunya": False
+        }
+        self._ocultar_alerta_processamento_bases()
+        self._atualizar_indicador_arquivos_bases()
 
         iniciou = (
             self.atualizacao_bases_service.iniciar(

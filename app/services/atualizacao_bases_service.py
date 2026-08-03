@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from time import monotonic
@@ -16,6 +17,7 @@ from app.services.checkpoint_service import (
 )
 from app.services.rotina_bases_service import (
     EventoRotinaBases,
+    ProcessamentoBasesPendente,
     RotinaBasesCancelada,
     RotinaBasesService
 )
@@ -39,6 +41,10 @@ class AtualizacaoBasesService:
     EVENTO_CONCLUIDO = "concluido"
     EVENTO_ERRO = "erro"
     EVENTO_CANCELADO = "cancelado"
+    EVENTO_ALERTA_PROCESSAMENTO = "alerta_processamento"
+    EVENTO_MODO_MANUAL = "modo_manual"
+    EVENTO_PENDENTE = "processamento_pendente"
+    EVENTO_CORRECAO_MANUAL = "correcao_manual"
 
     ETAPA_ACESSO = "acesso"
     ETAPA_SOLICITACOES = (
@@ -76,8 +82,11 @@ class AtualizacaoBasesService:
 
         self._eventos: Queue[dict[str, Any]] = Queue()
         self._cancelamento = Event()
+        self._modo_manual = Event()
         self._lock = Lock()
 
+        self._modo_manual_disponivel = False
+        self._pendencia_atual: dict[str, object] | None = None
         self._thread: Thread | None = None
         self._executando = False
         self._etapa_atual: str | None = None
@@ -110,6 +119,9 @@ class AtualizacaoBasesService:
 
             self._executando = True
             self._cancelamento.clear()
+            self._modo_manual.clear()
+            self._modo_manual_disponivel = False
+            self._pendencia_atual = None
             self._etapa_atual = None
 
             self._thread = Thread(
@@ -129,6 +141,61 @@ class AtualizacaoBasesService:
         with self._lock:
             return self._executando
 
+    def modo_manual_esta_disponivel(self) -> bool:
+        with self._lock:
+            return (
+                self._executando
+                and self._modo_manual_disponivel
+            )
+
+    def modo_manual_esta_ativo(self) -> bool:
+        return self._modo_manual.is_set()
+
+    def ativar_modo_manual(self) -> bool:
+        """
+        Pausa somente as atualizações automáticas da tabela.
+
+        O navegador permanece aberto na thread de trabalho para que
+        o usuário acompanhe o SINAN. A rotina pode ser retomada pela
+        interface sem criar novas solicitações.
+        """
+
+        with self._lock:
+            if (
+                not self._executando
+                or not self._modo_manual_disponivel
+            ):
+                return False
+
+            self._modo_manual.set()
+
+        self._emitir(
+            self.EVENTO_MODO_MANUAL,
+            ativo=True,
+            mensagem=(
+                "Acompanhamento manual ativado. O navegador do "
+                "SINAN permanece aberto e as atualizações "
+                "automáticas estão pausadas."
+            )
+        )
+        return True
+
+    def retomar_modo_automatico(self) -> bool:
+        with self._lock:
+            if not self._executando:
+                return False
+
+            self._modo_manual.clear()
+
+        self._emitir(
+            self.EVENTO_MODO_MANUAL,
+            ativo=False,
+            mensagem=(
+                "Acompanhamento automático retomado."
+            )
+        )
+        return True
+
     def cancelar(self):
         """
         Solicita cancelamento no próximo ponto seguro.
@@ -139,6 +206,7 @@ class AtualizacaoBasesService:
         """
 
         self._cancelamento.set()
+        self._modo_manual.clear()
 
         self._emitir(
             self.EVENTO_STATUS,
@@ -158,6 +226,80 @@ class AtualizacaoBasesService:
                 )
             except Empty:
                 return eventos
+
+    def obter_pendencia_atual(
+        self
+    ) -> dict[str, object] | None:
+        with self._lock:
+            if self._pendencia_atual is None:
+                return None
+
+            return dict(
+                self._pendencia_atual
+            )
+
+    def iniciar_correcao_manual(
+        self,
+        caminho_zip: str
+    ) -> bool:
+        """
+        Inicia, em segundo plano, a validação de um ZIP obtido
+        manualmente para o agravo que ficou pendente.
+
+        O arquivo só é aceito após validação de integridade e
+        identificação por DENGON ou CHIKON.
+        """
+
+        caminho_zip = str(
+            caminho_zip
+        ).strip()
+
+        if not caminho_zip:
+            raise ValueError(
+                "Selecione o ZIP que será validado."
+            )
+
+        with self._lock:
+            if self._executando:
+                return False
+
+            if self._pendencia_atual is None:
+                raise RuntimeError(
+                    "Não existe uma pendência de Bases registrada "
+                    "nesta execução."
+                )
+
+            self._executando = True
+            self._cancelamento.clear()
+            self._modo_manual.clear()
+            self._modo_manual_disponivel = False
+            self._etapa_atual = self.ETAPA_PROCESSAMENTO
+
+            pendencia = dict(
+                self._pendencia_atual
+            )
+
+            self._thread = Thread(
+                target=self._executar_correcao_manual,
+                kwargs={
+                    "caminho_zip": caminho_zip,
+                    "pendencia": pendencia
+                },
+                name="ArboHub-CorrecaoManualBases",
+                daemon=True
+            )
+            self._thread.start()
+
+        self._emitir(
+            self.EVENTO_CORRECAO_MANUAL,
+            estado="iniciada",
+            mensagem=(
+                "Validando o arquivo selecionado para resolver "
+                "a pendência."
+            )
+        )
+
+        return True
 
     # ------------------------------------------------------------------
     # Execução
@@ -251,12 +393,15 @@ class AtualizacaoBasesService:
                     atualizar_pastas_teste=True,
                     atualizar_bancos_atuais=True,
                     intervalo_consulta_segundos=15,
-                    tempo_limite_segundos=1800,
+                    tempo_limite_segundos=1200,
                     ao_evento=(
                         self._receber_evento_rotina
                     ),
                     cancelado=(
                         self._cancelamento.is_set
+                    ),
+                    modo_manual_ativo=(
+                        self._modo_manual.is_set
                     )
                 )
             )
@@ -275,6 +420,21 @@ class AtualizacaoBasesService:
                     "nas pastas de teste e em Bancos_Atuais."
                 ),
                 resultado=resultado
+            )
+
+        except ProcessamentoBasesPendente as pendencia:
+            self._modo_manual.clear()
+
+            with self._lock:
+                self._pendencia_atual = dict(
+                    pendencia.dados
+                )
+
+            self._emitir(
+                self.EVENTO_PENDENTE,
+                mensagem=str(pendencia),
+                etapa=self.ETAPA_PROCESSAMENTO,
+                dados=pendencia.dados
             )
 
         except (
@@ -311,6 +471,158 @@ class AtualizacaoBasesService:
 
             with self._lock:
                 self._executando = False
+                self._modo_manual_disponivel = False
+                self._modo_manual.clear()
+
+    def _executar_correcao_manual(
+        self,
+        caminho_zip: str,
+        pendencia: dict[str, object]
+    ):
+        try:
+            data_referencia_texto = str(
+                pendencia.get(
+                    "data_referencia",
+                    date.today().isoformat()
+                )
+            )
+
+            try:
+                data_referencia = date.fromisoformat(
+                    data_referencia_texto
+                )
+            except ValueError:
+                data_referencia = date.today()
+
+            agravos_pendentes = tuple(
+                pendencia.get(
+                    "agravos_pendentes",
+                    ()
+                )
+            )
+
+            resultado = (
+                self.rotina_service
+                .processar_correcao_manual(
+                    caminho_zip=caminho_zip,
+                    agravos_pendentes=agravos_pendentes,
+                    data_referencia=data_referencia,
+                    atualizar_pastas_teste=True,
+                    atualizar_bancos_atuais=True,
+                    ao_evento=(
+                        self._receber_evento_rotina
+                    ),
+                    cancelado=(
+                        self._cancelamento.is_set
+                    )
+                )
+            )
+
+            self._verificar_cancelamento()
+
+            if resultado["concluida"]:
+                self.checkpoint_service.marcar_atualizacao_bases(
+                    data_referencia=data_referencia
+                )
+
+                with self._lock:
+                    self._pendencia_atual = None
+
+                self._emitir(
+                    self.EVENTO_ATUALIZAR
+                )
+                self._emitir(
+                    self.EVENTO_CONCLUIDO,
+                    mensagem=(
+                        "A pendência foi corrigida, validada e a "
+                        "rotina de Bases está completa."
+                    ),
+                    resultado=resultado,
+                    correcao_manual=True
+                )
+                return
+
+            pendentes_restantes = tuple(
+                resultado.get(
+                    "agravos_pendentes",
+                    ()
+                )
+            )
+            processados_anteriores = list(
+                pendencia.get(
+                    "agravos_processados",
+                    ()
+                )
+            )
+            rotulo_corrigido = str(
+                resultado.get(
+                    "rotulo_corrigido",
+                    ""
+                )
+            )
+
+            if (
+                rotulo_corrigido
+                and rotulo_corrigido
+                not in processados_anteriores
+            ):
+                processados_anteriores.append(
+                    rotulo_corrigido
+                )
+
+            nova_pendencia = {
+                **pendencia,
+                "agravos_processados": tuple(
+                    processados_anteriores
+                ),
+                "agravos_pendentes":
+                    pendentes_restantes,
+                "correcao_manual_disponivel":
+                    bool(pendentes_restantes),
+                "data_referencia":
+                    data_referencia.isoformat()
+            }
+
+            with self._lock:
+                self._pendencia_atual = (
+                    nova_pendencia
+                )
+
+            self._emitir(
+                self.EVENTO_PENDENTE,
+                mensagem=(
+                    "Um arquivo foi corrigido manualmente, mas "
+                    "ainda existe outra exportação pendente."
+                ),
+                etapa=self.ETAPA_PROCESSAMENTO,
+                dados=nova_pendencia
+            )
+
+        except (
+            RotinaBasesCancelada,
+            _AtualizacaoBasesCancelada
+        ):
+            self._emitir(
+                self.EVENTO_CANCELADO,
+                mensagem=(
+                    "A correção manual foi cancelada."
+                ),
+                etapa=self.ETAPA_PROCESSAMENTO
+            )
+
+        except Exception as erro:
+            self._emitir(
+                self.EVENTO_ERRO,
+                mensagem=str(erro),
+                etapa=self.ETAPA_PROCESSAMENTO,
+                correcao_manual=True
+            )
+
+        finally:
+            with self._lock:
+                self._executando = False
+                self._modo_manual_disponivel = False
+                self._modo_manual.clear()
 
     def _aguardar_login_cancelavel(
         self,
@@ -363,6 +675,26 @@ class AtualizacaoBasesService:
         """
 
         self._etapa_atual = evento.etapa
+
+        if evento.dados.get("alerta_processamento"):
+            permitir_manual = bool(
+                evento.dados.get(
+                    "permitir_modo_manual",
+                    False
+                )
+            )
+
+            if permitir_manual:
+                with self._lock:
+                    self._modo_manual_disponivel = True
+
+            self._emitir(
+                self.EVENTO_ALERTA_PROCESSAMENTO,
+                mensagem=evento.mensagem,
+                etapa=evento.etapa,
+                dados=evento.dados
+            )
+            return
 
         if evento.etapa == RotinaBasesService.ETAPA_LOTE:
             self._emitir(
