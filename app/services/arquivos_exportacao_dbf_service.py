@@ -8,6 +8,8 @@ from datetime import date, datetime
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
+from app.services.configuracoes_service import ConfiguracoesService
+
 
 class ArquivosExportacaoDbfService:
     """
@@ -89,13 +91,18 @@ class ArquivosExportacaoDbfService:
                 / "exportacoes"
             )
 
+        configuracoes = (
+            ConfiguracoesService()
+            .obter()
+        )
+        caminhos_configurados = configuracoes[
+            "caminhos"
+        ]
+
         if raiz_historico is None:
-            raiz_historico = (
-                Path.home()
-                / "Documents"
-                / "SINAN"
-                / "Historico"
-            )
+            raiz_historico = caminhos_configurados[
+                "historico_sinan"
+            ]
 
         self.raiz_staging = Path(
             raiz_staging
@@ -104,6 +111,24 @@ class ArquivosExportacaoDbfService:
         self.raiz_historico = Path(
             raiz_historico
         ).expanduser().resolve()
+
+        self.pasta_teste_ab1 = Path(
+            caminhos_configurados[
+                "teste_ab1"
+            ]
+        ).expanduser()
+
+        self.pasta_teste_ab2 = Path(
+            caminhos_configurados[
+                "teste_ab2"
+            ]
+        ).expanduser()
+
+        self.pasta_bancos_atuais = Path(
+            caminhos_configurados[
+                "bancos_atuais"
+            ]
+        ).expanduser()
 
     # ------------------------------------------------------------------
     # Pasta temporária
@@ -894,14 +919,10 @@ class ArquivosExportacaoDbfService:
         )
 
         if pasta_ab1 is None:
-            pasta_ab1 = Path(
-                r"F:\Antropozoonoses\Teste AB1"
-            )
+            pasta_ab1 = self.pasta_teste_ab1
 
         if pasta_ab2 is None:
-            pasta_ab2 = Path(
-                r"F:\Antropozoonoses\Teste AB2"
-            )
+            pasta_ab2 = self.pasta_teste_ab2
 
         pasta_ab1 = Path(pasta_ab1)
         pasta_ab2 = Path(pasta_ab2)
@@ -1384,10 +1405,7 @@ class ArquivosExportacaoDbfService:
 
         if pasta_bancos_atuais is None:
             pasta_bancos_atuais = (
-                Path.home()
-                / "Documents"
-                / "SINAN"
-                / "Bancos_Atuais"
+                self.pasta_bancos_atuais
             )
 
         pasta_bancos_atuais = Path(

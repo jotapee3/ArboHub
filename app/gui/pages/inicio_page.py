@@ -7,6 +7,7 @@ import customtkinter as ctk
 
 from app.gui.themes.colors import Colors
 from app.services.dashboard_service import DashboardService
+from app.services.configuracoes_service import ConfiguracoesService
 
 
 class InicioPage(ctk.CTkScrollableFrame):
@@ -48,6 +49,7 @@ class InicioPage(ctk.CTkScrollableFrame):
         )
 
         self.dashboard_service = DashboardService()
+        self.configuracoes_service = ConfiguracoesService()
         self.resumo: dict[str, object] | None = None
         self._atualizacao_id = None
         self._pagina_destruida = False
@@ -843,10 +845,27 @@ class InicioPage(ctk.CTkScrollableFrame):
             except Exception:
                 pass
 
-        self._atualizacao_id = self.after(
-            60_000,
-            self.atualizar_dashboard
-        )
+        configuracoes = (
+            self.configuracoes_service
+            .obter()
+        )["geral"]
+
+        if configuracoes[
+            "dashboard_atualizacao_automatica"
+        ]:
+            intervalo_ms = (
+                configuracoes[
+                    "dashboard_intervalo_segundos"
+                ]
+                * 1000
+            )
+
+            self._atualizacao_id = self.after(
+                intervalo_ms,
+                self.atualizar_dashboard
+            )
+        else:
+            self._atualizacao_id = None
 
     def _atualizar_painel_principal(self):
         hoje = self.resumo["hoje"]

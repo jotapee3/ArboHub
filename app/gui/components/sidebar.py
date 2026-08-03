@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import customtkinter as ctk
@@ -7,295 +9,368 @@ from app.gui.themes.colors import Colors
 
 
 class Sidebar(ctk.CTkFrame):
+    """
+    Navegação principal do ArboHub.
 
-    # Controla o tamanho visível do ícone.
-    TAMANHO_ICONE = 58
+    Configurações permanece no rodapé, visualmente separada dos
+    módulos operacionais.
+    """
 
-    # Controla o tamanho do cartão atrás do ícone.
-    TAMANHO_CONTAINER_ICONE = 64
+    LARGURA = 230
 
     def __init__(
         self,
         master,
         comando_inicio,
         comando_sinan,
-        comando_gal
+        comando_gal,
+        comando_configuracoes
     ):
         super().__init__(
             master,
-            width=230,
+            width=self.LARGURA,
             corner_radius=0,
-            fg_color=Colors.SIDEBAR
+            fg_color=Colors.SIDEBAR,
+            border_width=0
         )
-
-        self.pack_propagate(False)
 
         self.comando_inicio = comando_inicio
         self.comando_sinan = comando_sinan
         self.comando_gal = comando_gal
+        self.comando_configuracoes = (
+            comando_configuracoes
+        )
 
-        self.botao_ativo = None
-        self.imagem_logo = None
+        self.grid_propagate(
+            False
+        )
+        self.grid_rowconfigure(
+            2,
+            weight=1
+        )
+        self.grid_columnconfigure(
+            0,
+            weight=1
+        )
 
-        self.criar_cabecalho()
-        self.criar_menu()
-        self.criar_rodape()
+        self.botoes = {}
 
-    def criar_cabecalho(self):
+        self._criar_marca()
+        self._criar_menu()
+        self._criar_rodape()
+
+    def _criar_marca(self):
         cabecalho = ctk.CTkFrame(
             self,
             fg_color="transparent"
         )
-        cabecalho.pack(
-            fill="x",
+        cabecalho.grid(
+            row=0,
+            column=0,
+            sticky="ew",
             padx=18,
-            pady=(24, 20)
+            pady=(22, 14)
+        )
+        cabecalho.grid_columnconfigure(
+            0,
+            weight=1
         )
 
-        marca = ctk.CTkFrame(
+        caminho_logo = self._localizar_logo()
+
+        if caminho_logo is not None:
+            try:
+                imagem = Image.open(
+                    caminho_logo
+                )
+                self.logo_imagem = ctk.CTkImage(
+                    light_image=imagem,
+                    dark_image=imagem,
+                    size=(176, 52)
+                )
+
+                ctk.CTkLabel(
+                    cabecalho,
+                    text="",
+                    image=self.logo_imagem
+                ).grid(
+                    row=0,
+                    column=0,
+                    sticky="w"
+                )
+                return
+            except Exception:
+                pass
+
+        ctk.CTkLabel(
             cabecalho,
-            fg_color="transparent"
-        )
-        marca.pack(
-            fill="x",
-            anchor="w"
-        )
-
-        container_icone = ctk.CTkFrame(
-            marca,
-            width=self.TAMANHO_CONTAINER_ICONE,
-            height=self.TAMANHO_CONTAINER_ICONE,
-            corner_radius=0,
-            fg_color="transparent",
-            border_width=0
-        )
-        
-        container_icone.pack(side="left")
-        container_icone.pack_propagate(False)
-
-        caminho_icone = (
-            Path(__file__).resolve().parent.parent
-            / "assets"
-            / "arbohub_icon.png"
-        )
-
-        imagem_original = Image.open(
-            caminho_icone
-        ).convert("RGBA")
-
-        # Localiza o conteúdo real da imagem,
-        # desconsiderando margens transparentes.
-        caixa_conteudo = imagem_original.getchannel(
-            "A"
-        ).getbbox()
-
-        if caixa_conteudo is not None:
-            imagem_original = imagem_original.crop(
-                caixa_conteudo
-            )
-
-        # Cria uma área quadrada sem deformar o ícone.
-        largura, altura = imagem_original.size
-        tamanho_quadrado = max(largura, altura)
-
-        imagem_quadrada = Image.new(
-            mode="RGBA",
-            size=(tamanho_quadrado, tamanho_quadrado),
-            color=(0, 0, 0, 0)
-        )
-
-        posicao_x = (
-            tamanho_quadrado - largura
-        ) // 2
-
-        posicao_y = (
-            tamanho_quadrado - altura
-        ) // 2
-
-        imagem_quadrada.paste(
-            imagem_original,
-            (posicao_x, posicao_y),
-            imagem_original
-        )
-
-        self.imagem_logo = ctk.CTkImage(
-            light_image=imagem_quadrada,
-            dark_image=imagem_quadrada,
-            size=(
-                self.TAMANHO_ICONE,
-                self.TAMANHO_ICONE
-            )
-        )
-
-        icone = ctk.CTkLabel(
-            container_icone,
-            text="",
-            image=self.imagem_logo,
-            fg_color="transparent",
-            width=self.TAMANHO_CONTAINER_ICONE,
-            height=self.TAMANHO_CONTAINER_ICONE
-        )
-        icone.place(
-            relx=0.5,
-            rely=0.5,
-            anchor="center"
-        )
-
-        nome = ctk.CTkLabel(
-            marca,
             text="ArboHub",
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=26,
+                size=24,
                 weight="bold"
             ),
             text_color=Colors.TEXT_PRIMARY,
             anchor="w"
-        )
-        nome.pack(
-            side="left",
-            padx=(10, 0)
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w"
         )
 
-        subtitulo = ctk.CTkLabel(
+        ctk.CTkLabel(
             cabecalho,
-            text="Software para vigilância em saúde",
-            font=ctk.CTkFont(
-                family="Segoe UI",
-                size=12
-            ),
-            text_color=Colors.TEXT_SECONDARY,
-            anchor="w"
-        )
-        subtitulo.pack(
-            fill="x",
-            anchor="w",
-            pady=(8, 0)
-        )
-
-        divisor = ctk.CTkFrame(
-            cabecalho,
-            height=1,
-            fg_color=Colors.DIVIDER
-        )
-        divisor.pack(
-            fill="x",
-            pady=(20, 0)
-        )
-
-    def criar_menu(self):
-        self.botao_inicio = self.criar_botao_menu(
-            texto="Início",
-            comando=self.comando_inicio
-        )
-
-        self.botao_sinan = self.criar_botao_menu(
-            texto="SINAN",
-            comando=self.comando_sinan
-        )
-
-        self.botao_gal = self.criar_botao_menu(
-            texto="GAL",
-            comando=self.comando_gal
-        )
-
-    def criar_botao_menu(
-        self,
-        texto,
-        comando
-    ):
-        botao = ctk.CTkButton(
-            self,
-            text=texto,
-            command=comando,
-            height=46,
-            corner_radius=7,
-            fg_color="transparent",
-            hover_color=Colors.SURFACE_HOVER,
-            text_color=Colors.TEXT_SECONDARY,
-            font=ctk.CTkFont(
-                family="Segoe UI",
-                size=14,
-                weight="bold"
-            ),
-            anchor="w"
-        )
-
-        botao.pack(
-            fill="x",
-            padx=14,
-            pady=4
-        )
-
-        return botao
-
-    def selecionar_botao(
-        self,
-        botao
-    ):
-        if self.botao_ativo is not None:
-            self.botao_ativo.configure(
-                fg_color="transparent",
-                text_color=Colors.TEXT_SECONDARY
-            )
-
-        botao.configure(
-            fg_color=Colors.SURFACE_SELECTED,
-            text_color=Colors.PRIMARY
-        )
-
-        self.botao_ativo = botao
-
-    def selecionar_inicio(self):
-        self.selecionar_botao(
-            self.botao_inicio
-        )
-
-    def selecionar_sinan(self):
-        self.selecionar_botao(
-            self.botao_sinan
-        )
-
-    def selecionar_gal(self):
-        self.selecionar_botao(
-            self.botao_gal
-        )
-
-    def criar_rodape(self):
-        rodape = ctk.CTkFrame(
-            self,
-            fg_color="transparent"
-        )
-        rodape.pack(
-            side="bottom",
-            fill="x",
-            padx=20,
-            pady=20
-        )
-
-        status = ctk.CTkLabel(
-            rodape,
-            text="● Sistema disponível",
-            font=ctk.CTkFont(
-                family="Segoe UI",
-                size=11
-            ),
-            text_color=Colors.SUCCESS,
-            anchor="w"
-        )
-        status.pack(fill="x")
-
-        versao = ctk.CTkLabel(
-            rodape,
-            text="ArboHub v0.5",
+            text="Vigilância integrada",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=10
             ),
-            text_color=Colors.TEXT_SECONDARY,
+            text_color=Colors.TEXT_MUTED,
             anchor="w"
+        ).grid(
+            row=1,
+            column=0,
+            sticky="w",
+            pady=(2, 0)
         )
-        versao.pack(
-            fill="x",
-            pady=(4, 0)
+
+    def _criar_menu(self):
+        ctk.CTkLabel(
+            self,
+            text="NAVEGAÇÃO",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=9,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        ).grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=22,
+            pady=(5, 8)
         )
+
+        menu = ctk.CTkFrame(
+            self,
+            fg_color="transparent"
+        )
+        menu.grid(
+            row=2,
+            column=0,
+            sticky="nsew",
+            padx=12
+        )
+        menu.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        itens = (
+            (
+                "inicio",
+                "⌂",
+                "Início",
+                self.comando_inicio
+            ),
+            (
+                "sinan",
+                "S",
+                "SINAN",
+                self.comando_sinan
+            ),
+            (
+                "gal",
+                "G",
+                "GAL",
+                self.comando_gal
+            )
+        )
+
+        for linha, (
+            chave,
+            icone,
+            texto,
+            comando
+        ) in enumerate(itens):
+            self.botoes[chave] = (
+                self._criar_botao_menu(
+                    master=menu,
+                    linha=linha,
+                    icone=icone,
+                    texto=texto,
+                    comando=comando,
+                    compacto=False
+                )
+            )
+
+    def _criar_rodape(self):
+        rodape = ctk.CTkFrame(
+            self,
+            fg_color="transparent"
+        )
+        rodape.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=12,
+            pady=(10, 14)
+        )
+        rodape.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        ctk.CTkFrame(
+            rodape,
+            height=1,
+            fg_color=Colors.BORDER
+        ).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=7,
+            pady=(0, 10)
+        )
+
+        self.botoes[
+            "configuracoes"
+        ] = self._criar_botao_menu(
+            master=rodape,
+            linha=1,
+            icone="⚙",
+            texto="Configurações",
+            comando=self.comando_configuracoes,
+            compacto=True
+        )
+
+        ctk.CTkLabel(
+            rodape,
+            text="CEVS • Antropozoonoses",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=9
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        ).grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=10,
+            pady=(8, 0)
+        )
+
+    def _criar_botao_menu(
+        self,
+        master,
+        linha: int,
+        icone: str,
+        texto: str,
+        comando,
+        compacto: bool
+    ):
+        botao = ctk.CTkButton(
+            master,
+            text=f"{icone}   {texto}",
+            command=comando,
+            height=(
+                36
+                if compacto
+                else 42
+            ),
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            border_width=1,
+            border_color=Colors.SIDEBAR,
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=(
+                    11
+                    if compacto
+                    else 12
+                ),
+                weight="bold"
+            )
+        )
+        botao.grid(
+            row=linha,
+            column=0,
+            sticky="ew",
+            pady=(
+                2
+                if compacto
+                else 3
+            )
+        )
+
+        return botao
+
+    def selecionar(
+        self,
+        chave: str
+    ):
+        for nome, botao in self.botoes.items():
+            ativo = nome == chave
+
+            botao.configure(
+                fg_color=(
+                    Colors.BUTTON
+                    if ativo
+                    else "transparent"
+                ),
+                border_color=(
+                    Colors.BORDER
+                    if ativo
+                    else Colors.SIDEBAR
+                ),
+                text_color=(
+                    Colors.TEXT_PRIMARY
+                    if ativo
+                    else Colors.TEXT_SECONDARY
+                )
+            )
+
+    # Compatibilidade com versões anteriores.
+    def selecionar_item(
+        self,
+        chave: str
+    ):
+        self.selecionar(
+            chave
+        )
+
+    def definir_ativo(
+        self,
+        chave: str
+    ):
+        self.selecionar(
+            chave
+        )
+
+    def _localizar_logo(self) -> Path | None:
+        raiz = Path(__file__).resolve().parents[3]
+
+        candidatos = (
+            raiz
+            / "assets"
+            / "arbohub_sidebar.png",
+            raiz
+            / "app"
+            / "assets"
+            / "arbohub_sidebar.png",
+            raiz
+            / "assets"
+            / "arbohub_original.png"
+        )
+
+        for caminho in candidatos:
+            if caminho.exists():
+                return caminho
+
+        return None
