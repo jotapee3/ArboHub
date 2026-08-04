@@ -4956,7 +4956,7 @@ class SinanPage(ctk.CTkFrame):
         self.painel_alerta_processamento.grid()
 
         # A correção manual só é liberada quando o limite de
-        # 20 minutos for atingido e houver um agravo pendente.
+        # o tempo máximo configurado for atingido e houver pendência.
         self.botao_correcao_manual_bases.configure(
             state="disabled",
             text="Confirmar correção manual"
@@ -5127,6 +5127,30 @@ class SinanPage(ctk.CTkFrame):
             )
         )
         dados = evento.get("dados", {})
+        tempo_limite_segundos = float(
+            dados.get(
+                "tempo_limite_segundos",
+                1200
+            )
+        )
+
+        if tempo_limite_segundos % 60 == 0:
+            minutos_limite = int(
+                tempo_limite_segundos // 60
+            )
+            unidade_limite = (
+                "minuto"
+                if minutos_limite == 1
+                else "minutos"
+            )
+            texto_tempo_limite = (
+                f"{minutos_limite} {unidade_limite}"
+            )
+        else:
+            texto_tempo_limite = (
+                f"{tempo_limite_segundos:g} segundos"
+            )
+
         processados = list(
             dados.get("agravos_processados", ())
         )
@@ -5226,7 +5250,7 @@ class SinanPage(ctk.CTkFrame):
             titulo="Exportação ainda indisponível",
             mensagem=(
                 "O SINAN não disponibilizou todos os arquivos "
-                "dentro de 20 minutos.\n\n"
+                f"dentro de {texto_tempo_limite}.\n\n"
                 f"Arquivos concluídos: {texto_processados}.\n"
                 f"Arquivos pendentes: {texto_pendentes}.\n\n"
                 "Os arquivos que ficaram disponíveis já foram "
