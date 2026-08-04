@@ -2511,7 +2511,7 @@ class SinanPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             indicador,
-            text="🔄",
+            text="📂",
             font=ctk.CTkFont(
                 family="Segoe UI Emoji",
                 size=18
