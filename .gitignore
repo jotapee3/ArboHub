@@ -53,3 +53,5 @@ traces/
 screenshots/
 videos/
 *.har
+# Lock local de desenvolvimento do ArboHub
+.arbohub-dev.lock
