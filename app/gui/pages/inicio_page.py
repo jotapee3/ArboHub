@@ -9,6 +9,7 @@ from PIL import Image
 
 from app.gui.themes.colors import Colors
 from app.services.dashboard_service import DashboardService
+from app.services.configuracoes_service import ConfiguracoesService
 
 
 class InicioPage(ctk.CTkScrollableFrame):
@@ -50,6 +51,7 @@ class InicioPage(ctk.CTkScrollableFrame):
         )
 
         self.dashboard_service = DashboardService()
+        self.configuracoes_service = ConfiguracoesService()
         self._icones_sistemas: dict[str, ctk.CTkImage] = {}
         self.resumo: dict[str, object] | None = None
         self._atualizacao_id = None
@@ -920,10 +922,27 @@ class InicioPage(ctk.CTkScrollableFrame):
             except Exception:
                 pass
 
-        self._atualizacao_id = self.after(
-            60_000,
-            self.atualizar_dashboard
+        configuracoes_dashboard = (
+            self.configuracoes_service
+            .carregar()["dashboard"]
         )
+
+        if configuracoes_dashboard[
+            "atualizacao_automatica"
+        ]:
+            intervalo_ms = (
+                configuracoes_dashboard[
+                    "intervalo_segundos"
+                ]
+                * 1000
+            )
+
+            self._atualizacao_id = self.after(
+                intervalo_ms,
+                self.atualizar_dashboard
+            )
+        else:
+            self._atualizacao_id = None
 
     def _atualizar_painel_principal(self):
         hoje = self.resumo["hoje"]

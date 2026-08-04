@@ -19,7 +19,8 @@ class Sidebar(ctk.CTkFrame):
         master,
         comando_inicio,
         comando_sinan,
-        comando_gal
+        comando_gal,
+        comando_configuracoes
     ):
         super().__init__(
             master,
@@ -33,6 +34,9 @@ class Sidebar(ctk.CTkFrame):
         self.comando_inicio = comando_inicio
         self.comando_sinan = comando_sinan
         self.comando_gal = comando_gal
+        self.comando_configuracoes = (
+            comando_configuracoes
+        )
 
         self.botao_ativo = None
         self.imagem_logo = None
@@ -261,6 +265,11 @@ class Sidebar(ctk.CTkFrame):
             self.botao_gal
         )
 
+    def selecionar_configuracoes(self):
+        self.selecionar_botao(
+            self.botao_configuracoes
+        )
+
     def criar_rodape(self):
         rodape = ctk.CTkFrame(
             self,
@@ -269,8 +278,40 @@ class Sidebar(ctk.CTkFrame):
         rodape.pack(
             side="bottom",
             fill="x",
-            padx=20,
+            padx=14,
             pady=20
+        )
+
+        divisor = ctk.CTkFrame(
+            rodape,
+            height=1,
+            fg_color=Colors.DIVIDER
+        )
+        divisor.pack(
+            fill="x",
+            padx=6,
+            pady=(0, 10)
+        )
+
+        self.botao_configuracoes = ctk.CTkButton(
+            rodape,
+            text="⚙  Configurações",
+            command=self.comando_configuracoes,
+            height=38,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold"
+            ),
+            anchor="w"
+        )
+        self.botao_configuracoes.pack(
+            fill="x",
+            pady=(0, 12)
         )
 
         status = ctk.CTkLabel(
@@ -283,7 +324,10 @@ class Sidebar(ctk.CTkFrame):
             text_color=Colors.SUCCESS,
             anchor="w"
         )
-        status.pack(fill="x")
+        status.pack(
+            fill="x",
+            padx=6
+        )
 
         versao = ctk.CTkLabel(
             rodape,
@@ -297,5 +341,6 @@ class Sidebar(ctk.CTkFrame):
         )
         versao.pack(
             fill="x",
+            padx=6,
             pady=(4, 0)
         )
