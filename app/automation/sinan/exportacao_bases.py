@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 import re
 from time import monotonic
 from typing import Callable
@@ -78,6 +79,7 @@ class ExportacaoBasesDbf(VerificacaoObitos):
 
     INTERVALO_ATUALIZACAO_PADRAO_SEGUNDOS = 15
     TEMPO_LIMITE_PROCESSAMENTO_PADRAO_SEGUNDOS = 1200
+    TEMPO_LIMITE_DOWNLOAD_SEGUNDOS = 180
 
     TENTATIVAS_ESTABILIZAR_FORMULARIO = 4
 
@@ -1317,6 +1319,230 @@ class ExportacaoBasesDbf(VerificacaoObitos):
         raise RuntimeError(
             "Não foi possível localizar o botão Atualizar "
             "na tela Consultar Exportações DBF."
+        )
+
+    def baixar_exportacao_dbf(
+        self,
+        numero_solicitacao: str,
+        caminho_destino: str | Path
+    ) -> dict[str, object]:
+        """
+        Baixa o ZIP associado ao número exato da solicitação.
+
+        Pré-condições:
+        - o navegador foi aberto com downloads permitidos;
+        - a tela Consultar Exportações DBF está aberta;
+        - a solicitação está concluída;
+        - o link de download está disponível.
+
+        O arquivo é salvo no caminho temporário informado.
+        A validação do ZIP e a nomenclatura final pertencem ao
+        serviço local de arquivos.
+        """
+
+        self._garantir_tela_consulta_exportacoes()
+
+        numero_solicitacao = (
+            self._validar_numero_solicitacao(
+                numero_solicitacao
+            )
+        )
+
+        resultado = self._ler_solicitacao_na_tabela(
+            numero_solicitacao
+        )
+
+        if not resultado["encontrada"]:
+            raise RuntimeError(
+                "A solicitação não foi localizada na tabela: "
+                f"{numero_solicitacao}."
+            )
+
+        if not resultado["processamento_concluido"]:
+            raise RuntimeError(
+                "A solicitação ainda não está concluída: "
+                f"{numero_solicitacao}."
+            )
+
+        if not resultado["link_disponivel"]:
+            raise RuntimeError(
+                "O link de download ainda não está disponível: "
+                f"{numero_solicitacao}."
+            )
+
+        link = (
+            self._localizar_link_download_solicitacao(
+                numero_solicitacao
+            )
+        )
+
+        caminho_destino = Path(
+            caminho_destino
+        )
+        caminho_destino.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        if caminho_destino.exists():
+            raise FileExistsError(
+                "O arquivo temporário já existe e não será "
+                f"sobrescrito: {caminho_destino}"
+            )
+
+        try:
+            with self.pagina.expect_download(
+                timeout=(
+                    self.TEMPO_LIMITE_DOWNLOAD_SEGUNDOS
+                    * 1000
+                )
+            ) as evento_download:
+                self._clicar_elemento_resiliente(
+                    elemento=link,
+                    descricao=(
+                        "Baixar arquivo DBF da solicitação "
+                        f"{numero_solicitacao}"
+                    )
+                )
+
+            download = evento_download.value
+
+            falha = download.failure()
+
+            if falha:
+                raise RuntimeError(
+                    "O navegador informou falha no download: "
+                    f"{falha}"
+                )
+
+            nome_sugerido = (
+                download.suggested_filename
+                or ""
+            )
+
+            download.save_as(
+                str(caminho_destino)
+            )
+
+        except Exception:
+            if caminho_destino.exists():
+                caminho_destino.unlink()
+            raise
+
+        if (
+            not caminho_destino.exists()
+            or caminho_destino.stat().st_size <= 0
+        ):
+            raise RuntimeError(
+                "O download terminou sem produzir "
+                "um arquivo válido."
+            )
+
+        return {
+            "numero_solicitacao": numero_solicitacao,
+            "caminho_temporario": caminho_destino,
+            "nome_sugerido": nome_sugerido,
+            "tamanho_bytes":
+                caminho_destino.stat().st_size,
+            "download_concluido": True,
+            "dados_de_pacientes_lidos": False
+        }
+
+    def _localizar_link_download_solicitacao(
+        self,
+        numero_solicitacao: str
+    ) -> Locator:
+        """
+        Localiza o link da linha cujo número corresponde
+        exatamente à solicitação informada.
+        """
+
+        tabela_info = (
+            self._localizar_tabela_exportacoes()
+        )
+
+        if tabela_info is None:
+            raise RuntimeError(
+                "A tabela de exportações DBF "
+                "não foi localizada."
+            )
+
+        tabela = tabela_info["tabela"]
+        indices = tabela_info["indices"]
+        indice_numero = indices["numero"]
+        indice_link = indices.get("link")
+
+        if indice_link is None:
+            raise RuntimeError(
+                "A coluna Link não foi localizada na tabela."
+            )
+
+        linhas = tabela.locator("tr")
+
+        for indice_linha in range(linhas.count()):
+            linha = linhas.nth(indice_linha)
+
+            try:
+                if not linha.is_visible():
+                    continue
+
+                celulas = linha.locator("th, td")
+
+                if (
+                    indice_numero >= celulas.count()
+                    or indice_link >= celulas.count()
+                ):
+                    continue
+
+                texto_numero = (
+                    celulas.nth(
+                        indice_numero
+                    ).inner_text().strip()
+                )
+                numero_linha = re.sub(
+                    r"\D",
+                    "",
+                    texto_numero
+                )
+
+                if numero_linha != numero_solicitacao:
+                    continue
+
+                links = celulas.nth(
+                    indice_link
+                ).locator("a")
+
+                for indice_atual in range(
+                    links.count()
+                ):
+                    link = links.nth(
+                        indice_atual
+                    )
+
+                    if not link.is_visible():
+                        continue
+
+                    texto = (
+                        link.inner_text().strip()
+                    )
+
+                    if (
+                        self._normalizar_texto(
+                            self.TEXTO_LINK_DOWNLOAD
+                        )
+                        in self._normalizar_texto(
+                            texto
+                        )
+                    ):
+                        return link
+
+            except Exception:
+                continue
+
+        raise RuntimeError(
+            "O link de download não foi localizado "
+            "na linha da solicitação "
+            f"{numero_solicitacao}."
         )
 
     def _validar_numero_solicitacao(
