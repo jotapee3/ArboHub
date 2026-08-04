@@ -6,12 +6,21 @@ from app.gui.components.content_area import ContentArea
 from app.gui.pages.inicio_page import InicioPage
 from app.gui.pages.sinan_page import SinanPage
 from app.gui.pages.gal_page import GalPage
+from app.gui.pages.configuracoes_page import ConfiguracoesPage
 from app.gui.themes.colors import Colors
+from app.services.configuracoes_service import ConfiguracoesService
 
 
 class MainWindow(ctk.CTk):
 
     def __init__(self):
+        self.configuracoes_service = (
+            ConfiguracoesService()
+        )
+        self.configuracoes = (
+            self.configuracoes_service.carregar()
+        )
+
         super().__init__()
 
         self.title("ArboHub")
@@ -30,7 +39,12 @@ class MainWindow(ctk.CTk):
 
         self.centralizar_janela()
         self.criar_interface()
-        self.abrir_inicio()
+        self._abrir_pagina_inicial()
+
+        self.after(
+            20,
+            self._aplicar_estado_janela
+        )
 
         self.mainloop()
 
@@ -41,7 +55,10 @@ class MainWindow(ctk.CTk):
             self,
             comando_inicio=self.abrir_inicio,
             comando_sinan=self.abrir_sinan,
-            comando_gal=self.abrir_gal
+            comando_gal=self.abrir_gal,
+            comando_configuracoes=(
+                self.abrir_configuracoes
+            )
         )
 
         self.sidebar.pack(
@@ -73,6 +90,52 @@ class MainWindow(ctk.CTk):
     def abrir_gal(self):
         self.content_area.mostrar_pagina(GalPage)
         self.sidebar.selecionar_gal()
+
+    def abrir_configuracoes(self):
+        self.content_area.mostrar_pagina(
+            lambda master: ConfiguracoesPage(
+                master,
+                ao_salvar=self._ao_salvar_configuracoes
+            )
+        )
+        self.sidebar.selecionar_configuracoes()
+
+    def _abrir_pagina_inicial(self):
+        pagina = self.configuracoes[
+            "geral"
+        ]["pagina_inicial"]
+
+        comandos = {
+            "inicio": self.abrir_inicio,
+            "sinan": self.abrir_sinan,
+            "gal": self.abrir_gal
+        }
+
+        comandos.get(
+            pagina,
+            self.abrir_inicio
+        )()
+
+    def _ao_salvar_configuracoes(
+        self,
+        configuracoes
+    ):
+        self.configuracoes = configuracoes
+        self._aplicar_estado_janela()
+
+    def _aplicar_estado_janela(self):
+        maximizado = self.configuracoes[
+            "geral"
+        ]["abrir_maximizado"]
+
+        try:
+            if maximizado:
+                self.state("zoomed")
+            else:
+                self.state("normal")
+                self.centralizar_janela()
+        except Exception:
+            self.centralizar_janela()
 
     def centralizar_janela(self):
         self.update_idletasks()
