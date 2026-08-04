@@ -15,6 +15,9 @@ from app.automation.sinan.navegador_sinan import (
 from app.services.checkpoint_service import (
     CheckpointService
 )
+from app.services.configuracoes_service import (
+    ConfiguracoesService
+)
 from app.services.rotina_bases_service import (
     EventoRotinaBases,
     ProcessamentoBasesPendente,
@@ -69,11 +72,17 @@ class AtualizacaoBasesService:
     def __init__(
         self,
         checkpoint_service: CheckpointService | None = None,
-        rotina_service: RotinaBasesService | None = None
+        rotina_service: RotinaBasesService | None = None,
+        configuracoes_service:
+            ConfiguracoesService | None = None
     ):
         self.checkpoint_service = (
             checkpoint_service
             or CheckpointService()
+        )
+        self.configuracoes_service = (
+            configuracoes_service
+            or ConfiguracoesService()
         )
         self.rotina_service = (
             rotina_service
@@ -90,6 +99,7 @@ class AtualizacaoBasesService:
         self._thread: Thread | None = None
         self._executando = False
         self._etapa_atual: str | None = None
+
 
     # ------------------------------------------------------------------
     # Estado público
@@ -312,6 +322,13 @@ class AtualizacaoBasesService:
         navegador: NavegadorSinan | None = None
         exportacao: ExportacaoBasesDbf | None = None
         try:
+            configuracoes_exportacao = (
+                self.configuracoes_service
+                .carregar()
+                ["operacional"]
+                ["exportacao"]
+            )
+
             estado = (
                 self.rotina_service.avaliar_estado_do_dia()
             )
@@ -392,8 +409,31 @@ class AtualizacaoBasesService:
                     substituir_historico=False,
                     atualizar_pastas_teste=True,
                     atualizar_bancos_atuais=True,
-                    intervalo_consulta_segundos=15,
-                    tempo_limite_segundos=1200,
+                    intervalo_consulta_segundos=(
+                        configuracoes_exportacao[
+                            "intervalo_consulta_segundos"
+                        ]
+                    ),
+                    tempo_limite_segundos=(
+                        configuracoes_exportacao[
+                            "tempo_limite_segundos"
+                        ]
+                    ),
+                    aviso_inicial_segundos=(
+                        configuracoes_exportacao[
+                            "aviso_inicial_segundos"
+                        ]
+                    ),
+                    aviso_lento_segundos=(
+                        configuracoes_exportacao[
+                            "aviso_lento_segundos"
+                        ]
+                    ),
+                    aviso_reforcado_segundos=(
+                        configuracoes_exportacao[
+                            "aviso_reforcado_segundos"
+                        ]
+                    ),
                     ao_evento=(
                         self._receber_evento_rotina
                     ),

@@ -8,6 +8,10 @@ from datetime import date, datetime
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
+from app.services.configuracoes_service import (
+    ConfiguracoesService
+)
+
 
 class ArquivosExportacaoDbfService:
     """
@@ -66,8 +70,25 @@ class ArquivosExportacaoDbfService:
     def __init__(
         self,
         raiz_staging: str | Path | None = None,
-        raiz_historico: str | Path | None = None
+        raiz_historico: str | Path | None = None,
+        pasta_ab1: str | Path | None = None,
+        pasta_ab2: str | Path | None = None,
+        pasta_bancos_atuais: str | Path | None = None,
+        configuracoes_service:
+            ConfiguracoesService | None = None
     ):
+        self.configuracoes_service = (
+            configuracoes_service
+            or ConfiguracoesService()
+        )
+
+        caminhos_configurados = (
+            self.configuracoes_service
+            .carregar()
+            ["operacional"]
+            ["caminhos"]
+        )
+
         if raiz_staging is None:
             local_app_data = os.environ.get(
                 "LOCALAPPDATA"
@@ -90,20 +111,138 @@ class ArquivosExportacaoDbfService:
             )
 
         if raiz_historico is None:
-            raiz_historico = (
-                Path.home()
-                / "Documents"
-                / "SINAN"
-                / "Historico"
-            )
+            raiz_historico = caminhos_configurados[
+                "historico_sinan"
+            ]
+
+        if pasta_ab1 is None:
+            pasta_ab1 = caminhos_configurados[
+                "teste_ab1"
+            ]
+
+        if pasta_ab2 is None:
+            pasta_ab2 = caminhos_configurados[
+                "teste_ab2"
+            ]
+
+        if pasta_bancos_atuais is None:
+            pasta_bancos_atuais = caminhos_configurados[
+                "bancos_atuais"
+            ]
 
         self.raiz_staging = Path(
             raiz_staging
-        ).expanduser().resolve()
+        ).expanduser()
 
         self.raiz_historico = Path(
             raiz_historico
-        ).expanduser().resolve()
+        ).expanduser()
+
+        self.pasta_teste_ab1 = Path(
+            pasta_ab1
+        ).expanduser()
+
+        self.pasta_teste_ab2 = Path(
+            pasta_ab2
+        ).expanduser()
+
+        self.pasta_bancos_atuais = Path(
+            pasta_bancos_atuais
+        ).expanduser()
+
+    def validar_destinos_operacionais(
+        self,
+        incluir_historico: bool = True,
+        incluir_pastas_teste: bool = True,
+        incluir_bancos_atuais: bool = True
+    ) -> dict[str, Path]:
+        """
+        Confirma leitura, gravação e separação dos destinos.
+
+        O teste cria somente um pequeno arquivo temporário de
+        permissão e o remove imediatamente. Nenhum ZIP ou DBF é
+        aberto ou modificado.
+        """
+
+        caminhos: dict[str, Path] = {}
+
+        if incluir_historico:
+            caminhos["historico_sinan"] = (
+                self.raiz_historico
+            )
+
+        if incluir_pastas_teste:
+            caminhos["teste_ab1"] = (
+                self.pasta_teste_ab1
+            )
+            caminhos["teste_ab2"] = (
+                self.pasta_teste_ab2
+            )
+
+        if incluir_bancos_atuais:
+            caminhos["bancos_atuais"] = (
+                self.pasta_bancos_atuais
+            )
+
+        validados: dict[str, Path] = {}
+
+        for chave, caminho in caminhos.items():
+            validados[chave] = (
+                self.configuracoes_service
+                .validar_pasta_operacional(
+                    chave=chave,
+                    caminho=caminho,
+                    testar_escrita=True
+                )
+            )
+
+        normalizados: dict[str, list[str]] = {}
+
+        for chave, caminho in validados.items():
+            try:
+                absoluto = caminho.resolve(
+                    strict=False
+                )
+            except OSError:
+                absoluto = caminho.absolute()
+
+            normalizado = os.path.normcase(
+                os.path.normpath(
+                    str(absoluto)
+                )
+            )
+            normalizados.setdefault(
+                normalizado,
+                []
+            ).append(chave)
+
+        repetidos = [
+            grupo
+            for grupo in normalizados.values()
+            if len(grupo) > 1
+        ]
+
+        if repetidos:
+            nomes = []
+
+            for grupo in repetidos:
+                nomes.append(
+                    " e ".join(
+                        self.configuracoes_service
+                        .ROTULOS_CAMINHOS[chave]
+                        for chave in grupo
+                    )
+                )
+
+            raise ValueError(
+                "Os destinos operacionais precisam usar pastas "
+                "diferentes. Revise: "
+                + "; ".join(nomes)
+                + "."
+            )
+
+        return validados
+
 
     # ------------------------------------------------------------------
     # Pasta temporária
@@ -985,12 +1124,8 @@ class ArquivosExportacaoDbfService:
         """
         Retorna os caminhos finais esperados para o ano informado.
 
-        Por padrão:
-        Dengue:
-        F:\\Antropozoonoses\\Teste AB1\\TesteAAAA_AB1.dbf
-
-        Chikungunya:
-        F:\\Antropozoonoses\\Teste AB2\\TesteAAAA_AB2.dbf
+        Quando os argumentos não são enviados, usa os destinos
+        validados nas Configurações do ArboHub.
         """
 
         data_referencia = (
@@ -999,17 +1134,17 @@ class ArquivosExportacaoDbfService:
         )
 
         if pasta_ab1 is None:
-            pasta_ab1 = Path(
-                r"F:\Antropozoonoses\Teste AB1"
-            )
+            pasta_ab1 = self.pasta_teste_ab1
 
         if pasta_ab2 is None:
-            pasta_ab2 = Path(
-                r"F:\Antropozoonoses\Teste AB2"
-            )
+            pasta_ab2 = self.pasta_teste_ab2
 
-        pasta_ab1 = Path(pasta_ab1)
-        pasta_ab2 = Path(pasta_ab2)
+        pasta_ab1 = Path(
+            pasta_ab1
+        ).expanduser()
+        pasta_ab2 = Path(
+            pasta_ab2
+        ).expanduser()
 
         return {
             self.AGRAVO_DENGUE: (
@@ -1021,6 +1156,7 @@ class ArquivosExportacaoDbfService:
                 / f"Teste{data_referencia.year}_AB2.dbf"
             )
         }
+
 
     def instalar_dbfs_pastas_teste(
         self,
@@ -1475,11 +1611,8 @@ class ArquivosExportacaoDbfService:
         """
         Retorna os nomes oficiais dos bancos atuais.
 
-        Exemplos para 2026:
-        - dengue_2026.dbf
-        - chiku_2026.dbf
-
-        O ano é calculado automaticamente pela data de referência.
+        Quando o argumento não é enviado, usa o destino validado
+        nas Configurações do ArboHub.
         """
 
         data_referencia = (
@@ -1489,15 +1622,12 @@ class ArquivosExportacaoDbfService:
 
         if pasta_bancos_atuais is None:
             pasta_bancos_atuais = (
-                Path.home()
-                / "Documents"
-                / "SINAN"
-                / "Bancos_Atuais"
+                self.pasta_bancos_atuais
             )
 
         pasta_bancos_atuais = Path(
             pasta_bancos_atuais
-        )
+        ).expanduser()
 
         return {
             self.AGRAVO_DENGUE: (
@@ -1509,6 +1639,7 @@ class ArquivosExportacaoDbfService:
                 / f"chiku_{data_referencia.year}.dbf"
             )
         }
+
 
     def instalar_dbfs_bancos_atuais(
         self,

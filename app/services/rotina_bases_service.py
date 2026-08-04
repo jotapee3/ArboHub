@@ -136,6 +136,12 @@ class RotinaBasesService:
             or date.today()
         )
 
+        self.arquivos_service.validar_destinos_operacionais(
+            incluir_historico=True,
+            incluir_pastas_teste=True,
+            incluir_bancos_atuais=True
+        )
+
         lote_completo = (
             self.registro_service
             .obter_lote_completo_do_dia(
@@ -612,6 +618,9 @@ class RotinaBasesService:
         atualizar_bancos_atuais: bool = True,
         intervalo_consulta_segundos: float = 15,
         tempo_limite_segundos: float = 1200,
+        aviso_inicial_segundos: float = 60,
+        aviso_lento_segundos: float = 300,
+        aviso_reforcado_segundos: float = 600,
         ao_evento: CallbackEvento | None = None,
         cancelado: CallbackCancelamento | None = None,
         modo_manual_ativo: CallbackCancelamento | None = None
@@ -627,6 +636,30 @@ class RotinaBasesService:
         data_referencia = (
             data_referencia
             or date.today()
+        )
+
+        self.arquivos_service.validar_destinos_operacionais(
+            incluir_historico=True,
+            incluir_pastas_teste=atualizar_pastas_teste,
+            incluir_bancos_atuais=atualizar_bancos_atuais
+        )
+
+        self._validar_tempos_acompanhamento(
+            intervalo_consulta_segundos=(
+                intervalo_consulta_segundos
+            ),
+            aviso_inicial_segundos=(
+                aviso_inicial_segundos
+            ),
+            aviso_lento_segundos=(
+                aviso_lento_segundos
+            ),
+            aviso_reforcado_segundos=(
+                aviso_reforcado_segundos
+            ),
+            tempo_limite_segundos=(
+                tempo_limite_segundos
+            )
         )
 
         resultado_solicitacoes = (
@@ -662,6 +695,15 @@ class RotinaBasesService:
             tempo_limite_segundos=(
                 tempo_limite_segundos
             ),
+            aviso_inicial_segundos=(
+                aviso_inicial_segundos
+            ),
+            aviso_lento_segundos=(
+                aviso_lento_segundos
+            ),
+            aviso_reforcado_segundos=(
+                aviso_reforcado_segundos
+            ),
             ao_evento=ao_evento,
             cancelado=cancelado,
             modo_manual_ativo=modo_manual_ativo
@@ -683,6 +725,9 @@ class RotinaBasesService:
         atualizar_bancos_atuais: bool = True,
         intervalo_consulta_segundos: float = 15,
         tempo_limite_segundos: float = 1200,
+        aviso_inicial_segundos: float = 60,
+        aviso_lento_segundos: float = 300,
+        aviso_reforcado_segundos: float = 600,
         ao_evento: CallbackEvento | None = None,
         cancelado: CallbackCancelamento | None = None,
         modo_manual_ativo: CallbackCancelamento | None = None
@@ -699,6 +744,30 @@ class RotinaBasesService:
         data_referencia = (
             data_referencia
             or date.today()
+        )
+
+        self.arquivos_service.validar_destinos_operacionais(
+            incluir_historico=True,
+            incluir_pastas_teste=atualizar_pastas_teste,
+            incluir_bancos_atuais=atualizar_bancos_atuais
+        )
+
+        self._validar_tempos_acompanhamento(
+            intervalo_consulta_segundos=(
+                intervalo_consulta_segundos
+            ),
+            aviso_inicial_segundos=(
+                aviso_inicial_segundos
+            ),
+            aviso_lento_segundos=(
+                aviso_lento_segundos
+            ),
+            aviso_reforcado_segundos=(
+                aviso_reforcado_segundos
+            ),
+            tempo_limite_segundos=(
+                tempo_limite_segundos
+            )
         )
 
         self._verificar_cancelamento(
@@ -884,7 +953,7 @@ class RotinaBasesService:
                 data_referencia=data_referencia
             )
             agravos_processados: set[str] = set()
-            alertas_emitidos: set[int] = set()
+            alertas_emitidos: set[object] = set()
             inicio_processamento = monotonic()
 
             configuracao_agravos = {
@@ -1051,10 +1120,16 @@ class RotinaBasesService:
                         }
                     )
 
+                limite_formatado = (
+                    self._formatar_duracao(
+                        tempo_limite_segundos
+                    )
+                )
+
                 marcos = (
                     (
-                        60,
-                        1,
+                        aviso_inicial_segundos,
+                        "aviso_inicial",
                         "informacao",
                         "O processamento pode demorar um pouco",
                         (
@@ -1066,8 +1141,8 @@ class RotinaBasesService:
                         False
                     ),
                     (
-                        300,
-                        5,
+                        aviso_lento_segundos,
+                        "aviso_lento",
                         "aviso",
                         "Processamento mais lento que o normal",
                         (
@@ -1079,14 +1154,14 @@ class RotinaBasesService:
                         False
                     ),
                     (
-                        600,
-                        10,
+                        aviso_reforcado_segundos,
+                        "aviso_reforcado",
                         "aviso",
                         "A exportação continua pendente",
                         (
                             "O tempo de resposta do SINAN está acima do "
                             "habitual. O acompanhamento continuará até "
-                            "o limite de 20 minutos."
+                            f"o limite configurado de {limite_formatado}."
                         ),
                         False
                     )
@@ -1094,7 +1169,7 @@ class RotinaBasesService:
 
                 for (
                     segundos,
-                    minutos,
+                    chave_alerta,
                     nivel,
                     titulo,
                     texto,
@@ -1102,9 +1177,9 @@ class RotinaBasesService:
                 ) in marcos:
                     if (
                         tempo_decorrido >= segundos
-                        and minutos not in alertas_emitidos
+                        and chave_alerta not in alertas_emitidos
                     ):
-                        alertas_emitidos.add(minutos)
+                        alertas_emitidos.add(chave_alerta)
                         self._emitir(
                             ao_evento=ao_evento,
                             etapa=self.ETAPA_PROCESSAMENTO,
@@ -1112,7 +1187,14 @@ class RotinaBasesService:
                             mensagem=titulo,
                             dados={
                                 "alerta_processamento": True,
-                                "marco_minutos": minutos,
+                                "marco_minutos": (
+                                    int(segundos // 60)
+                                    if segundos % 60 == 0
+                                    else round(
+                                        segundos / 60,
+                                        1
+                                    )
+                                ),
                                 "nivel": nivel,
                                 "titulo": titulo,
                                 "texto": texto,
@@ -1151,17 +1233,26 @@ class RotinaBasesService:
                     if chave in agravos_processados
                 ]
 
+                limite_formatado = (
+                    self._formatar_duracao(
+                        tempo_limite_segundos
+                    )
+                )
+
                 raise ProcessamentoBasesPendente(
                     (
                         "O acompanhamento automático chegou ao limite "
-                        "de 20 minutos. Informe sua supervisora sobre "
-                        "a exportação que continua indisponível e use "
-                        "a correção manual quando o arquivo for obtido."
+                        f"configurado de {limite_formatado}. Informe "
+                        "sua supervisora sobre a exportação que continua "
+                        "indisponível e use a correção manual quando o "
+                        "arquivo for obtido."
                     ),
                     dados={
                         "tempo_decorrido_segundos": processamento[
                             "tempo_decorrido_segundos"
                         ],
+                        "tempo_limite_segundos":
+                            tempo_limite_segundos,
                         "agravos_processados": tuple(concluidos),
                         "agravos_pendentes": tuple(pendentes),
                         "dengue": processamento["dengue"],
@@ -1783,6 +1874,59 @@ class RotinaBasesService:
                 )
             }
         )
+
+    def _validar_tempos_acompanhamento(
+        self,
+        intervalo_consulta_segundos: float,
+        aviso_inicial_segundos: float,
+        aviso_lento_segundos: float,
+        aviso_reforcado_segundos: float,
+        tempo_limite_segundos: float
+    ):
+        valores = (
+            intervalo_consulta_segundos,
+            aviso_inicial_segundos,
+            aviso_lento_segundos,
+            aviso_reforcado_segundos,
+            tempo_limite_segundos
+        )
+
+        if any(
+            valor <= 0
+            for valor in valores
+        ):
+            raise ValueError(
+                "Os tempos de acompanhamento precisam ser maiores "
+                "que zero."
+            )
+
+        if not (
+            aviso_inicial_segundos
+            < aviso_lento_segundos
+            < aviso_reforcado_segundos
+            < tempo_limite_segundos
+        ):
+            raise ValueError(
+                "Os avisos da exportação precisam estar em ordem "
+                "crescente e ocorrer antes do tempo máximo."
+            )
+
+    def _formatar_duracao(
+        self,
+        segundos: float
+    ) -> str:
+        if segundos % 60 == 0:
+            minutos = int(
+                segundos // 60
+            )
+            unidade = (
+                "minuto"
+                if minutos == 1
+                else "minutos"
+            )
+            return f"{minutos} {unidade}"
+
+        return f"{segundos:g} segundos"
 
     def _verificar_cancelamento(
         self,

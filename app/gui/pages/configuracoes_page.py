@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from tkinter import filedialog
 
 import customtkinter as ctk
 
@@ -22,8 +24,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
     """
     Preferências gerais do ArboHub.
 
-    Esta primeira versão não armazena credenciais e não altera os
-    caminhos ou o comportamento das automações do SINAN.
+    As preferências operacionais desta versão não armazenam
+    credenciais e não acessam o conteúdo interno dos DBFs.
     """
 
     PAGINAS = {
@@ -48,6 +50,73 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         valor: chave
         for chave, valor in INTERVALOS.items()
     }
+
+    INTERVALOS_EXPORTACAO = {
+        "10 segundos": 10,
+        "15 segundos": 15,
+        "30 segundos": 30,
+        "60 segundos": 60
+    }
+
+    AVISOS_INICIAIS = {
+        "1 minuto": 60,
+        "2 minutos": 120,
+        "3 minutos": 180
+    }
+
+    AVISOS_LENTOS = {
+        "5 minutos": 300,
+        "7 minutos": 420,
+        "10 minutos": 600
+    }
+
+    AVISOS_REFORCADOS = {
+        "10 minutos": 600,
+        "12 minutos": 720,
+        "15 minutos": 900
+    }
+
+    LIMITES_EXPORTACAO = {
+        "15 minutos": 900,
+        "20 minutos": 1200,
+        "30 minutos": 1800,
+        "45 minutos": 2700
+    }
+
+    CAMINHOS_OPERACIONAIS = (
+        (
+            "historico_sinan",
+            "Histórico do SINAN",
+            (
+                "Raiz usada para arquivar os ZIPs por ano, "
+                "agravo e mês."
+            )
+        ),
+        (
+            "teste_ab1",
+            "Teste AB1",
+            (
+                "Destino do banco anual de Dengue usado nos "
+                "testes do setor."
+            )
+        ),
+        (
+            "teste_ab2",
+            "Teste AB2",
+            (
+                "Destino do banco anual de Chikungunya usado "
+                "nos testes do setor."
+            )
+        ),
+        (
+            "bancos_atuais",
+            "Bancos_Atuais",
+            (
+                "Destino da dupla oficial dengue_AAAA.dbf e "
+                "chiku_AAAA.dbf."
+            )
+        )
+    )
 
     def __init__(
         self,
@@ -82,6 +151,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self._criar_cabecalho()
         self._criar_secao_geral()
         self._criar_secao_dashboard()
+        self._criar_secao_caminhos_operacionais()
+        self._criar_secao_exportacao_parcial()
         self._criar_secao_manutencao()
         self._criar_secao_sobre()
         self._criar_rodape()
@@ -92,6 +163,15 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ]
         dashboard = self.configuracoes[
             "dashboard"
+        ]
+        operacional = self.configuracoes[
+            "operacional"
+        ]
+        caminhos = operacional[
+            "caminhos"
+        ]
+        exportacao = operacional[
+            "exportacao"
         ]
 
         self.pagina_inicial_var = ctk.StringVar(
@@ -118,6 +198,66 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "60 segundos"
             )
         )
+
+        self.caminhos_vars = {
+            chave: ctk.StringVar(
+                value=str(
+                    caminhos[chave]
+                )
+            )
+            for chave, _, _ in self.CAMINHOS_OPERACIONAIS
+        }
+        self.status_caminhos: dict[
+            str,
+            ctk.CTkLabel
+        ] = {}
+
+        self.intervalo_exportacao_var = ctk.StringVar(
+            value=self._rotulo_por_valor(
+                self.INTERVALOS_EXPORTACAO,
+                exportacao[
+                    "intervalo_consulta_segundos"
+                ],
+                "15 segundos"
+            )
+        )
+        self.aviso_inicial_var = ctk.StringVar(
+            value=self._rotulo_por_valor(
+                self.AVISOS_INICIAIS,
+                exportacao[
+                    "aviso_inicial_segundos"
+                ],
+                "1 minuto"
+            )
+        )
+        self.aviso_lento_var = ctk.StringVar(
+            value=self._rotulo_por_valor(
+                self.AVISOS_LENTOS,
+                exportacao[
+                    "aviso_lento_segundos"
+                ],
+                "5 minutos"
+            )
+        )
+        self.aviso_reforcado_var = ctk.StringVar(
+            value=self._rotulo_por_valor(
+                self.AVISOS_REFORCADOS,
+                exportacao[
+                    "aviso_reforcado_segundos"
+                ],
+                "10 minutos"
+            )
+        )
+        self.tempo_limite_exportacao_var = ctk.StringVar(
+            value=self._rotulo_por_valor(
+                self.LIMITES_EXPORTACAO,
+                exportacao[
+                    "tempo_limite_segundos"
+                ],
+                "20 minutos"
+            )
+        )
+
 
     def _criar_cabecalho(self):
         cabecalho = ctk.CTkFrame(
@@ -352,9 +492,489 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             pady=12
         )
 
-    def _criar_secao_manutencao(self):
+    def _criar_secao_caminhos_operacionais(self):
         painel = self._criar_painel(
             linha=3,
+            titulo="Pastas operacionais",
+            descricao=(
+                "Defina os destinos usados pelo fluxo de Bases. "
+                "O ArboHub testa leitura e gravação antes de salvar."
+            )
+        )
+
+        aviso = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        aviso.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 12)
+        )
+        aviso.grid_columnconfigure(
+            1,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text="i",
+            width=32,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=15,
+                weight="bold"
+            ),
+            text_color=Colors.INFO
+        ).grid(
+            row=0,
+            column=0,
+            padx=(12, 6),
+            pady=12
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text=(
+                "Nenhum conteúdo de DBF é lido durante o teste. "
+                "Um arquivo temporário pequeno é criado e removido "
+                "imediatamente para confirmar a permissão de gravação."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=760
+        ).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 12),
+            pady=12
+        )
+
+        grade = ctk.CTkFrame(
+            painel,
+            fg_color="transparent"
+        )
+        grade.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(0, 20)
+        )
+        grade.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        for linha, (
+            chave,
+            titulo,
+            descricao
+        ) in enumerate(
+            self.CAMINHOS_OPERACIONAIS
+        ):
+            self._criar_campo_caminho(
+                master=grade,
+                linha=linha,
+                chave=chave,
+                titulo=titulo,
+                descricao=descricao
+            )
+
+    def _criar_campo_caminho(
+        self,
+        master,
+        linha: int,
+        chave: str,
+        titulo: str,
+        descricao: str
+    ):
+        card = ctk.CTkFrame(
+            master,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        card.grid(
+            row=linha,
+            column=0,
+            sticky="ew",
+            pady=(
+                (0, 6)
+                if linha == 0
+                else 6
+            )
+        )
+        card.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            card,
+            text=titulo,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=14,
+            pady=(13, 3)
+        )
+
+        ctk.CTkLabel(
+            card,
+            text=descricao,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=760
+        ).grid(
+            row=1,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=14
+        )
+
+        campo = ctk.CTkEntry(
+            card,
+            textvariable=self.caminhos_vars[
+                chave
+            ],
+            height=36,
+            corner_radius=6,
+            fg_color=Colors.INPUT,
+            border_color=Colors.INPUT_BORDER,
+            text_color=Colors.TEXT_PRIMARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            )
+        )
+        campo.grid(
+            row=2,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=14,
+            pady=(10, 8)
+        )
+        campo.bind(
+            "<KeyRelease>",
+            lambda _evento, item=chave:
+                self._marcar_caminho_nao_testado(
+                    item
+                ),
+            add="+"
+        )
+
+        barra_acoes = ctk.CTkFrame(
+            card,
+            fg_color="transparent"
+        )
+        barra_acoes.grid(
+            row=3,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=14
+        )
+        barra_acoes.grid_columnconfigure(
+            3,
+            weight=1
+        )
+
+        for coluna, (
+            texto,
+            comando
+        ) in enumerate(
+            (
+                (
+                    "Selecionar",
+                    lambda item=chave:
+                        self._selecionar_pasta_operacional(
+                            item
+                        )
+                ),
+                (
+                    "Testar",
+                    lambda item=chave:
+                        self._testar_caminho_operacional(
+                            item
+                        )
+                ),
+                (
+                    "Abrir",
+                    lambda item=chave:
+                        self._abrir_caminho_operacional(
+                            item
+                        )
+                )
+            )
+        ):
+            ctk.CTkButton(
+                barra_acoes,
+                text=texto,
+                command=comando,
+                width=92,
+                height=30,
+                corner_radius=6,
+                fg_color=Colors.BUTTON,
+                hover_color=Colors.BUTTON_HOVER,
+                border_width=1,
+                border_color=Colors.BUTTON_BORDER,
+                text_color=Colors.TEXT_SECONDARY,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=10,
+                    weight="bold"
+                )
+            ).grid(
+                row=0,
+                column=coluna,
+                padx=(
+                    (0, 6)
+                    if coluna == 0
+                    else 6
+                )
+            )
+
+        status = ctk.CTkLabel(
+            card,
+            text="○ Não testado nesta sessão",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        )
+        status.grid(
+            row=4,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=14,
+            pady=(8, 13)
+        )
+        self.status_caminhos[
+            chave
+        ] = status
+
+    def _criar_secao_exportacao_parcial(self):
+        painel = self._criar_painel(
+            linha=4,
+            titulo="Exportação parcial",
+            descricao=(
+                "Ajuste somente os tempos de acompanhamento do "
+                "SINAN. As proteções do fluxo permanecem obrigatórias."
+            )
+        )
+
+        grade = ctk.CTkFrame(
+            painel,
+            fg_color="transparent"
+        )
+        grade.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 12)
+        )
+        grade.grid_columnconfigure(
+            (0, 1),
+            weight=1,
+            uniform="config_exportacao"
+        )
+
+        self._criar_opcao_menu(
+            master=grade,
+            linha=0,
+            coluna=0,
+            titulo="Intervalo de consulta",
+            descricao=(
+                "Tempo entre as atualizações da tabela do SINAN."
+            ),
+            variavel=self.intervalo_exportacao_var,
+            valores=list(
+                self.INTERVALOS_EXPORTACAO.keys()
+            )
+        )
+
+        self._criar_opcao_menu(
+            master=grade,
+            linha=0,
+            coluna=1,
+            titulo="Primeiro aviso",
+            descricao=(
+                "Informa que o processamento pode levar alguns minutos."
+            ),
+            variavel=self.aviso_inicial_var,
+            valores=list(
+                self.AVISOS_INICIAIS.keys()
+            )
+        )
+
+        self._criar_opcao_menu(
+            master=grade,
+            linha=1,
+            coluna=0,
+            titulo="Aviso de lentidão",
+            descricao=(
+                "Sinaliza que uma ou mais exportações seguem pendentes."
+            ),
+            variavel=self.aviso_lento_var,
+            valores=list(
+                self.AVISOS_LENTOS.keys()
+            )
+        )
+
+        self._criar_opcao_menu(
+            master=grade,
+            linha=1,
+            coluna=1,
+            titulo="Aviso reforçado",
+            descricao=(
+                "Reforça que o tempo de resposta está acima do habitual."
+            ),
+            variavel=self.aviso_reforcado_var,
+            valores=list(
+                self.AVISOS_REFORCADOS.keys()
+            )
+        )
+
+        self._criar_opcao_menu(
+            master=grade,
+            linha=2,
+            coluna=0,
+            titulo="Tempo máximo automático",
+            descricao=(
+                "Após esse limite, libera a correção manual da pendência."
+            ),
+            variavel=self.tempo_limite_exportacao_var,
+            valores=list(
+                self.LIMITES_EXPORTACAO.keys()
+            )
+        )
+
+        protecoes = self._criar_card_opcao(
+            master=grade,
+            linha=2,
+            coluna=1,
+            titulo="Proteções do fluxo",
+            descricao=(
+                "Regras obrigatórias para evitar perda ou troca "
+                "de arquivos."
+            )
+        )
+
+        ctk.CTkLabel(
+            protecoes,
+            text=(
+                "✓ Processar o agravo disponível imediatamente\n"
+                "✓ Continuar acompanhando o agravo pendente\n"
+                "✓ Validar o ZIP antes da correção manual"
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.SUCCESS,
+            anchor="w",
+            justify="left"
+        ).grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(10, 14)
+        )
+
+        aviso = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7
+        )
+        aviso.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(0, 20)
+        )
+        aviso.grid_columnconfigure(
+            1,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text="!",
+            width=32,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=15,
+                weight="bold"
+            ),
+            text_color=Colors.WARNING
+        ).grid(
+            row=0,
+            column=0,
+            padx=(12, 6),
+            pady=12
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text=(
+                "Os avisos precisam permanecer em ordem crescente "
+                "e todos devem ocorrer antes do tempo máximo. "
+                "Configurações incompatíveis não serão salvas."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=720
+        ).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 12),
+            pady=12
+        )
+
+    def _criar_secao_manutencao(self):
+        painel = self._criar_painel(
+            linha=5,
             titulo="Testes e manutenção",
             descricao=(
                 "Ferramentas locais para repetir testes e acessar "
@@ -668,9 +1288,267 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 texto_botao="Entendi"
             )
 
+    def _rotulo_por_valor(
+        self,
+        opcoes: dict[str, int],
+        valor: int,
+        padrao: str
+    ) -> str:
+        for rotulo, numero in opcoes.items():
+            if numero == valor:
+                return rotulo
+
+        return padrao
+
+    def _selecionar_pasta_operacional(
+        self,
+        chave: str
+    ):
+        atual = Path(
+            self.caminhos_vars[
+                chave
+            ].get()
+        ).expanduser()
+
+        if atual.exists() and atual.is_dir():
+            inicial = atual
+        elif atual.parent.exists():
+            inicial = atual.parent
+        else:
+            inicial = Path.home()
+
+        selecionada = filedialog.askdirectory(
+            parent=self.winfo_toplevel(),
+            title=(
+                "Selecionar "
+                + self.configuracoes_service
+                .ROTULOS_CAMINHOS[chave]
+            ),
+            initialdir=str(inicial),
+            mustexist=True
+        )
+
+        if not selecionada:
+            return
+
+        self.caminhos_vars[
+            chave
+        ].set(
+            selecionada
+        )
+        self._marcar_caminho_nao_testado(
+            chave
+        )
+
+    def _marcar_caminho_nao_testado(
+        self,
+        chave: str
+    ):
+        status = self.status_caminhos.get(
+            chave
+        )
+
+        if status is None:
+            return
+
+        status.configure(
+            text="○ Alterado — teste necessário",
+            text_color=Colors.TEXT_MUTED
+        )
+
+    def _testar_caminho_operacional(
+        self,
+        chave: str
+    ) -> bool:
+        resultado = (
+            self.configuracoes_service
+            .testar_pasta_operacional(
+                chave=chave,
+                caminho=self.caminhos_vars[
+                    chave
+                ].get(),
+                testar_escrita=True
+            )
+        )
+
+        status = self.status_caminhos.get(
+            chave
+        )
+
+        if resultado["valido"]:
+            self.caminhos_vars[
+                chave
+            ].set(
+                str(
+                    resultado["caminho"]
+                )
+            )
+
+            if status is not None:
+                status.configure(
+                    text="✓ Leitura e gravação confirmadas",
+                    text_color=Colors.SUCCESS
+                )
+
+            return True
+
+        if status is not None:
+            status.configure(
+                text="× Caminho inválido ou indisponível",
+                text_color=Colors.ERROR
+            )
+
+        mostrar_dialogo_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Não foi possível validar a pasta",
+            mensagem=str(
+                resultado["mensagem"]
+            ),
+            tipo="erro",
+            texto_botao="Entendi"
+        )
+        return False
+
+    def _abrir_caminho_operacional(
+        self,
+        chave: str
+    ):
+        resultado = (
+            self.configuracoes_service
+            .testar_pasta_operacional(
+                chave=chave,
+                caminho=self.caminhos_vars[
+                    chave
+                ].get(),
+                testar_escrita=False
+            )
+        )
+
+        if not resultado["valido"]:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Não foi possível abrir a pasta",
+                mensagem=str(
+                    resultado["mensagem"]
+                ),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
+            return
+
+        if not hasattr(
+            os,
+            "startfile"
+        ):
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Abertura não suportada",
+                mensagem=(
+                    "Este recurso está disponível na instalação "
+                    "do ArboHub para Windows."
+                ),
+                tipo="informacao",
+                texto_botao="Entendi"
+            )
+            return
+
+        try:
+            os.startfile(
+                str(
+                    resultado["caminho"]
+                )
+            )
+        except OSError as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Não foi possível abrir a pasta",
+                mensagem=str(erro),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
+
+    def _validar_caminhos_para_salvar(
+        self
+    ) -> dict[str, str]:
+        caminhos = {
+            chave: self.caminhos_vars[
+                chave
+            ].get()
+            for chave, _, _ in self.CAMINHOS_OPERACIONAIS
+        }
+
+        validados = (
+            self.configuracoes_service
+            .validar_caminhos_operacionais(
+                caminhos=caminhos,
+                testar_escrita=True
+            )
+        )
+
+        for chave, caminho in validados.items():
+            self.caminhos_vars[
+                chave
+            ].set(
+                caminho
+            )
+
+            status = self.status_caminhos.get(
+                chave
+            )
+
+            if status is not None:
+                status.configure(
+                    text="✓ Leitura e gravação confirmadas",
+                    text_color=Colors.SUCCESS
+                )
+
+        return validados
+
+    def _obter_configuracao_exportacao(
+        self
+    ) -> dict[str, object]:
+        exportacao = {
+            "intervalo_consulta_segundos":
+                self.INTERVALOS_EXPORTACAO[
+                    self.intervalo_exportacao_var.get()
+                ],
+            "aviso_inicial_segundos":
+                self.AVISOS_INICIAIS[
+                    self.aviso_inicial_var.get()
+                ],
+            "aviso_lento_segundos":
+                self.AVISOS_LENTOS[
+                    self.aviso_lento_var.get()
+                ],
+            "aviso_reforcado_segundos":
+                self.AVISOS_REFORCADOS[
+                    self.aviso_reforcado_var.get()
+                ],
+            "tempo_limite_segundos":
+                self.LIMITES_EXPORTACAO[
+                    self.tempo_limite_exportacao_var.get()
+                ],
+            "processar_disponivel_imediatamente": True,
+            "continuar_acompanhando_pendente": True,
+            "permitir_correcao_manual": True
+        }
+
+        if not (
+            exportacao["aviso_inicial_segundos"]
+            < exportacao["aviso_lento_segundos"]
+            < exportacao["aviso_reforcado_segundos"]
+            < exportacao["tempo_limite_segundos"]
+        ):
+            raise ValueError(
+                "Os avisos precisam permanecer em ordem crescente "
+                "e ocorrer antes do tempo máximo automático."
+            )
+
+        return exportacao
+
     def _criar_secao_sobre(self):
         painel = self._criar_painel(
-            linha=4,
+            linha=6,
             titulo="Sobre",
             descricao=(
                 "Informações desta instalação do ArboHub."
@@ -791,7 +1669,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             fg_color="transparent"
         )
         rodape.grid(
-            row=5,
+            row=7,
             column=0,
             sticky="ew",
             padx=40,
@@ -1062,8 +1940,28 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
 
     def salvar_configuracoes(self):
+        try:
+            caminhos = (
+                self._validar_caminhos_para_salvar()
+            )
+            exportacao = (
+                self._obter_configuracao_exportacao()
+            )
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Configurações não salvas",
+                mensagem=(
+                    "Revise as pastas e os tempos operacionais.\n\n"
+                    f"Detalhe: {erro}"
+                ),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
+            return
+
         configuracoes = {
-            "versao": 1,
+            "versao": 3,
             "geral": {
                 "pagina_inicial": self.PAGINAS[
                     self.pagina_inicial_var.get()
@@ -1079,6 +1977,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "intervalo_segundos": self.INTERVALOS[
                     self.intervalo_dashboard_var.get()
                 ]
+            },
+            "operacional": {
+                "caminhos": caminhos,
+                "exportacao": exportacao
             }
         }
 
@@ -1086,6 +1988,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             self.configuracoes_service.salvar(
                 configuracoes
             )
+        )
+        self.manutencao_service = (
+            ManutencaoService()
         )
 
         if callable(self.ao_salvar):
@@ -1099,21 +2004,23 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             mensagem=(
                 "As preferências foram salvas para esta conta do "
                 "Windows.\n\n"
-                "A página inicial será aplicada na próxima abertura. "
-                "O estado da janela e o intervalo do dashboard já "
-                "podem ser aplicados nesta execução."
+                "Os caminhos e tempos operacionais serão usados na "
+                "próxima abertura da página SINAN. A página inicial, "
+                "o estado da janela e o dashboard continuam seguindo "
+                "as preferências gerais."
             ),
             tipo="sucesso",
             texto_botao="Entendi"
         )
+
 
     def restaurar_padroes(self):
         confirmou = solicitar_confirmacao_arbohub(
             master=self.winfo_toplevel(),
             titulo="Restaurar configurações?",
             mensagem=(
-                "As preferências gerais desta conta do Windows "
-                "voltarão aos valores padrão.\n\n"
+                "As preferências gerais, os caminhos operacionais e "
+                "os tempos da exportação voltarão aos valores padrão.\n\n"
                 "Nenhum banco, relatório, ZIP ou DBF será alterado."
             ),
             texto_confirmar="Restaurar padrões",
@@ -1128,12 +2035,24 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             self.configuracoes_service
             .restaurar_padroes()
         )
+        self.manutencao_service = (
+            ManutencaoService()
+        )
 
         geral = self.configuracoes[
             "geral"
         ]
         dashboard = self.configuracoes[
             "dashboard"
+        ]
+        operacional = self.configuracoes[
+            "operacional"
+        ]
+        caminhos = operacional[
+            "caminhos"
+        ]
+        exportacao = operacional[
+            "exportacao"
         ]
 
         self.pagina_inicial_var.set(
@@ -1157,6 +2076,71 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             ]
         )
 
+        for chave, _, _ in self.CAMINHOS_OPERACIONAIS:
+            self.caminhos_vars[
+                chave
+            ].set(
+                str(
+                    caminhos[chave]
+                )
+            )
+
+            status = self.status_caminhos.get(
+                chave
+            )
+
+            if status is not None:
+                status.configure(
+                    text="○ Padrão restaurado — teste antes de usar",
+                    text_color=Colors.TEXT_MUTED
+                )
+
+        self.intervalo_exportacao_var.set(
+            self._rotulo_por_valor(
+                self.INTERVALOS_EXPORTACAO,
+                exportacao[
+                    "intervalo_consulta_segundos"
+                ],
+                "15 segundos"
+            )
+        )
+        self.aviso_inicial_var.set(
+            self._rotulo_por_valor(
+                self.AVISOS_INICIAIS,
+                exportacao[
+                    "aviso_inicial_segundos"
+                ],
+                "1 minuto"
+            )
+        )
+        self.aviso_lento_var.set(
+            self._rotulo_por_valor(
+                self.AVISOS_LENTOS,
+                exportacao[
+                    "aviso_lento_segundos"
+                ],
+                "5 minutos"
+            )
+        )
+        self.aviso_reforcado_var.set(
+            self._rotulo_por_valor(
+                self.AVISOS_REFORCADOS,
+                exportacao[
+                    "aviso_reforcado_segundos"
+                ],
+                "10 minutos"
+            )
+        )
+        self.tempo_limite_exportacao_var.set(
+            self._rotulo_por_valor(
+                self.LIMITES_EXPORTACAO,
+                exportacao[
+                    "tempo_limite_segundos"
+                ],
+                "20 minutos"
+            )
+        )
+
         if callable(self.ao_salvar):
             self.ao_salvar(
                 self.configuracoes
@@ -1166,11 +2150,14 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=self.winfo_toplevel(),
             titulo="Padrões restaurados",
             mensagem=(
-                "As configurações padrão foram restauradas."
+                "As configurações padrão foram restauradas.\n\n"
+                "Teste as quatro pastas operacionais antes de iniciar "
+                "uma nova rotina de Bases."
             ),
             tipo="sucesso",
             texto_botao="Entendi"
         )
+
 
 class ConfirmacaoResetBasesDialog(ctk.CTkToplevel):
     """
