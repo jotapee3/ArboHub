@@ -20,6 +20,7 @@ class Sidebar(ctk.CTkFrame):
         comando_inicio,
         comando_sinan,
         comando_gal,
+        comando_historico,
         comando_configuracoes
     ):
         super().__init__(
@@ -34,6 +35,7 @@ class Sidebar(ctk.CTkFrame):
         self.comando_inicio = comando_inicio
         self.comando_sinan = comando_sinan
         self.comando_gal = comando_gal
+        self.comando_historico = comando_historico
         self.comando_configuracoes = (
             comando_configuracoes
         )
@@ -265,6 +267,11 @@ class Sidebar(ctk.CTkFrame):
             self.botao_gal
         )
 
+    def selecionar_historico(self):
+        self.selecionar_botao(
+            self.botao_historico
+        )
+
     def selecionar_configuracoes(self):
         self.selecionar_botao(
             self.botao_configuracoes
@@ -291,6 +298,27 @@ class Sidebar(ctk.CTkFrame):
             fill="x",
             padx=6,
             pady=(0, 10)
+        )
+
+        self.botao_historico = ctk.CTkButton(
+            rodape,
+            text="🕘  Histórico",
+            command=self.comando_historico,
+            height=38,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold"
+            ),
+            anchor="w"
+        )
+        self.botao_historico.pack(
+            fill="x",
+            pady=(0, 4)
         )
 
         self.botao_configuracoes = ctk.CTkButton(
