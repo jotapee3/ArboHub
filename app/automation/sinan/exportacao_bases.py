@@ -879,14 +879,23 @@ class ExportacaoBasesDbf(VerificacaoObitos):
 
     def abrir_consulta_exportacoes_dbf(self):
         """
-        Abre:
+        Abre de forma resiliente:
 
         Exportação
         → Consultar Exportações DBF
+
+        O submenu do SINAN pode exibir o texto dentro de um ``span``
+        enquanto o clique real pertence ao elemento ``a`` pai. Por
+        isso, esta rotina procura o link clicável e usa estratégias
+        progressivas, sem alterar o restante do fluxo.
         """
 
         if self._tela_consulta_exportacoes_esta_aberta():
             return
+
+        # Após a segunda solicitação o JSF pode ainda estar
+        # estabilizando a tela, mesmo depois da confirmação do número.
+        self.pagina.wait_for_timeout(800)
 
         limite = (
             monotonic()
@@ -899,24 +908,32 @@ class ExportacaoBasesDbf(VerificacaoObitos):
 
             try:
                 self._abrir_menu_exportacao()
+                self.pagina.wait_for_timeout(250)
 
-                item = self._aguardar_texto_visivel(
-                    texto=self.TEXTO_CONSULTAR_DBF,
-                    tempo_limite_segundos=8,
-                    exato=False
+                self._clicar_consultar_exportacoes_dbf()
+
+                if self._esperar_ate(
+                    condicao=(
+                        self._tela_consulta_exportacoes_esta_aberta
+                    ),
+                    tempo_limite_segundos=12
+                ):
+                    return
+
+                raise RuntimeError(
+                    "O item foi acionado, mas a tabela de "
+                    "exportações ainda não apareceu."
                 )
-
-                self._clicar_elemento_resiliente(
-                    elemento=item,
-                    descricao=self.TEXTO_CONSULTAR_DBF
-                )
-
-                self._aguardar_tela_consulta_exportacoes()
-                return
 
             except Exception as erro:
                 ultima_falha = erro
-                self.pagina.wait_for_timeout(300)
+
+                try:
+                    self.pagina.keyboard.press("Escape")
+                except Exception:
+                    pass
+
+                self.pagina.wait_for_timeout(500)
 
         detalhe = (
             f" Última tentativa: {ultima_falha}"
@@ -929,6 +946,7 @@ class ExportacaoBasesDbf(VerificacaoObitos):
             "Consultar Exportações DBF."
             + detalhe
         )
+
 
     def consultar_solicitacoes_dbf(
         self,
@@ -1828,6 +1846,171 @@ class ExportacaoBasesDbf(VerificacaoObitos):
             )
 
         return None
+
+    def _clicar_consultar_exportacoes_dbf(self):
+        """
+        Aciona especificamente o item Consultar Exportações DBF.
+
+        Prioriza o elemento ``a`` clicável. O fallback por JavaScript
+        é usado somente quando o clique normal e o clique forçado não
+        conseguem acionar o submenu visível.
+        """
+
+        candidatos = (
+            self._localizar_candidatos_consultar_exportacoes()
+        )
+
+        if not candidatos:
+            raise RuntimeError(
+                'O item "Consultar Exportações DBF" ficou visível, '
+                "mas nenhum link clicável foi localizado."
+            )
+
+        falhas: list[str] = []
+
+        for elemento in candidatos:
+            try:
+                elemento.scroll_into_view_if_needed()
+            except Exception:
+                pass
+
+            estrategias = (
+                (
+                    "clique normal",
+                    lambda: elemento.click(
+                        timeout=5_000
+                    )
+                ),
+                (
+                    "clique forçado",
+                    lambda: elemento.click(
+                        timeout=5_000,
+                        force=True
+                    )
+                ),
+                (
+                    "clique direto no link",
+                    lambda: elemento.evaluate(
+                        """
+                        (elemento) => {
+                            const link =
+                                elemento.closest("a")
+                                || elemento.querySelector("a")
+                                || elemento;
+
+                            link.click();
+                        }
+                        """
+                    )
+                )
+            )
+
+            for descricao, acao in estrategias:
+                try:
+                    acao()
+
+                    # Uma mudança de tela pode ocorrer por navegação
+                    # completa ou AJAX. A tabela é a confirmação real.
+                    if self._esperar_ate(
+                        condicao=(
+                            self._tela_consulta_exportacoes_esta_aberta
+                        ),
+                        tempo_limite_segundos=4
+                    ):
+                        return
+
+                    # O clique pode ter fechado o submenu sem navegar.
+                    # Reabre antes da próxima estratégia.
+                    self._abrir_menu_exportacao()
+                    self.pagina.wait_for_timeout(200)
+
+                except Exception as erro:
+                    falhas.append(
+                        f"{descricao}: {erro}"
+                    )
+
+                    try:
+                        self._abrir_menu_exportacao()
+                        self.pagina.wait_for_timeout(200)
+                    except Exception:
+                        pass
+
+        resumo = (
+            falhas[-1]
+            if falhas
+            else "nenhuma estratégia acionou a tela"
+        )
+
+        raise RuntimeError(
+            "O submenu de exportação foi aberto, mas não foi "
+            "possível acionar Consultar Exportações DBF. "
+            f"Detalhe: {resumo}"
+        )
+
+    def _localizar_candidatos_consultar_exportacoes(
+        self
+    ) -> list[Locator]:
+        """
+        Retorna somente candidatos visíveis e converte textos
+        internos para o link ``a`` ancestral quando necessário.
+        """
+
+        candidatos: list[Locator] = []
+
+        for contexto in self._obter_contextos():
+            localizadores = (
+                contexto.get_by_role(
+                    "link",
+                    name=self.TEXTO_CONSULTAR_DBF,
+                    exact=True
+                ),
+                contexto.get_by_role(
+                    "link",
+                    name=self.TEXTO_CONSULTAR_DBF,
+                    exact=False
+                ),
+                contexto.locator("a").filter(
+                    has_text=self.TEXTO_CONSULTAR_DBF
+                ),
+                contexto.get_by_text(
+                    self.TEXTO_CONSULTAR_DBF,
+                    exact=False
+                )
+            )
+
+            for localizador in localizadores:
+                try:
+                    quantidade = localizador.count()
+                except Exception:
+                    continue
+
+                for indice in range(quantidade):
+                    elemento = localizador.nth(indice)
+
+                    try:
+                        if not elemento.is_visible():
+                            continue
+
+                        link_ancestral = elemento.locator(
+                            "xpath=ancestor-or-self::a[1]"
+                        )
+
+                        if (
+                            link_ancestral.count() > 0
+                            and link_ancestral.first.is_visible()
+                        ):
+                            candidatos.append(
+                                link_ancestral.first
+                            )
+                        else:
+                            candidatos.append(
+                                elemento
+                            )
+
+                    except Exception:
+                        continue
+
+        return candidatos
 
     def _aguardar_tela_consulta_exportacoes(self):
         limite = (

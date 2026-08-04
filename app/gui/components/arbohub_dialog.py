@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+import math
 
 import customtkinter as ctk
 
@@ -26,7 +27,8 @@ class ArboHubDialog(ctk.CTkToplevel):
     """
 
     LARGURA = 540
-    ALTURA = 340
+    ALTURA_MINIMA = 360
+    ALTURA_MAXIMA = 540
 
     CONFIGURACOES = {
         "informacao": {
@@ -81,13 +83,19 @@ class ArboHubDialog(ctk.CTkToplevel):
         self.resultado = False
         self.configuracao = self.CONFIGURACOES[tipo]
 
+        self.altura_dialogo = (
+            self._calcular_altura_dialogo(
+                mensagem
+            )
+        )
+
         self.title(f"ArboHub — {titulo}")
         self.geometry(
-            f"{self.LARGURA}x{self.ALTURA}"
+            f"{self.LARGURA}x{self.altura_dialogo}"
         )
         self.minsize(
             self.LARGURA,
-            self.ALTURA
+            self.altura_dialogo
         )
         self.resizable(False, False)
         self.configure(
@@ -118,6 +126,44 @@ class ArboHubDialog(ctk.CTkToplevel):
         self.after(
             60,
             self._ativar_modal
+        )
+
+    def _calcular_altura_dialogo(
+        self,
+        mensagem: str
+    ) -> int:
+        """
+        Calcula uma altura suficiente para a mensagem atual.
+
+        Preserva a largura e todo o estilo visual do diálogo, mas
+        evita que textos maiores sejam cortados em escalas de
+        interface ou resoluções diferentes.
+        """
+
+        largura_estimada_linha = 52
+        linhas_visuais = 0
+
+        for linha in mensagem.splitlines() or [""]:
+            quantidade = max(
+                1,
+                math.ceil(
+                    len(linha)
+                    / largura_estimada_linha
+                )
+            )
+            linhas_visuais += quantidade
+
+        altura_estimada = (
+            285
+            + linhas_visuais * 21
+        )
+
+        return max(
+            self.ALTURA_MINIMA,
+            min(
+                self.ALTURA_MAXIMA,
+                altura_estimada
+            )
         )
 
     def _criar_cabecalho(self):
@@ -244,7 +290,7 @@ class ArboHubDialog(ctk.CTkToplevel):
                 size=13
             ),
             text_color=Colors.TEXT_SECONDARY,
-            anchor="w",
+            anchor="nw",
             justify="left",
             wraplength=455
         ).grid(
