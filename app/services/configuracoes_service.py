@@ -16,7 +16,7 @@ class ConfiguracoesService:
     cada conta do Windows tenha suas próprias preferências.
     """
 
-    VERSAO_CONFIGURACOES = 4
+    VERSAO_CONFIGURACOES = 5
 
     PAGINAS_VALIDAS = {
         "inicio",
@@ -123,6 +123,16 @@ class ConfiguracoesService:
             },
             "sinan": {
                 "login_automatico": False
+            },
+            "notificacoes": {
+                "som_conclusao": True,
+                "som_atencao": True,
+                "som_exportacao_disponivel": False,
+                "supervisao": {
+                    "nome": "",
+                    "telefone": "",
+                    "email": ""
+                }
             },
             "operacional": {
                 "caminhos": self.obter_caminhos_padroes(),
@@ -520,6 +530,115 @@ class ConfiguracoesService:
             "permitir_correcao_manual": True
         }
 
+    def validar_supervisao(
+        self,
+        supervisao: dict[str, Any]
+    ) -> dict[str, str]:
+        """
+        Valida dados institucionais opcionais da supervisão.
+
+        Esses dados permanecem somente no arquivo local de
+        configurações. Nenhum envio automático é realizado.
+        """
+
+        normalizado = self._normalizar_supervisao(
+            supervisao
+        )
+
+        email = normalizado["email"]
+
+        if email and not self._email_valido(
+            email
+        ):
+            raise ValueError(
+                "O e-mail institucional da supervisão não é válido."
+            )
+
+        telefone = normalizado[
+            "telefone"
+        ]
+
+        if telefone:
+            digitos = "".join(
+                caractere
+                for caractere in telefone
+                if caractere.isdigit()
+            )
+
+            if len(digitos) < 6:
+                raise ValueError(
+                    "O telefone institucional precisa ter pelo "
+                    "menos 6 dígitos."
+                )
+
+        return normalizado
+
+    def _normalizar_supervisao(
+        self,
+        supervisao: Any
+    ) -> dict[str, str]:
+        if not isinstance(
+            supervisao,
+            dict
+        ):
+            supervisao = {}
+
+        limites = {
+            "nome": 120,
+            "telefone": 40,
+            "email": 160
+        }
+
+        resultado: dict[str, str] = {}
+
+        for chave, limite in limites.items():
+            valor = str(
+                supervisao.get(
+                    chave,
+                    ""
+                )
+            ).strip()
+
+            if chave in {
+                "nome",
+                "email"
+            }:
+                valor = " ".join(
+                    valor.split()
+                )
+
+            if chave == "email":
+                valor = valor.casefold()
+
+            resultado[chave] = valor[
+                :limite
+            ]
+
+        return resultado
+
+    def _email_valido(
+        self,
+        email: str
+    ) -> bool:
+        if (
+            " " in email
+            or email.count("@") != 1
+        ):
+            return False
+
+        usuario, dominio = email.rsplit(
+            "@",
+            1
+        )
+
+        return bool(
+            usuario
+            and dominio
+            and "." in dominio
+            and not dominio.startswith(".")
+            and not dominio.endswith(".")
+        )
+
     def _mesclar(
         self,
         padroes: dict[str, Any],
@@ -573,6 +692,16 @@ class ConfiguracoesService:
         sinan = configuracoes.get(
             "sinan",
             {}
+        )
+        notificacoes = configuracoes.get(
+            "notificacoes",
+            {}
+        )
+        supervisao = self._normalizar_supervisao(
+            notificacoes.get(
+                "supervisao",
+                {}
+            )
         )
         operacional = configuracoes.get(
             "operacional",
@@ -650,6 +779,27 @@ class ConfiguracoesService:
                         False
                     )
                 )
+            },
+            "notificacoes": {
+                "som_conclusao": bool(
+                    notificacoes.get(
+                        "som_conclusao",
+                        True
+                    )
+                ),
+                "som_atencao": bool(
+                    notificacoes.get(
+                        "som_atencao",
+                        True
+                    )
+                ),
+                "som_exportacao_disponivel": bool(
+                    notificacoes.get(
+                        "som_exportacao_disponivel",
+                        False
+                    )
+                ),
+                "supervisao": supervisao
             },
             "operacional": {
                 "caminhos": caminhos,

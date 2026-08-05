@@ -1255,6 +1255,8 @@ class RotinaBasesService:
                             tempo_limite_segundos,
                         "agravos_processados": tuple(concluidos),
                         "agravos_pendentes": tuple(pendentes),
+                        "numero_dengue": numero_dengue,
+                        "numero_chikungunya": numero_chikungunya,
                         "dengue": processamento["dengue"],
                         "chikungunya": processamento["chikungunya"],
                         "correcao_manual_disponivel": bool(pendentes),
