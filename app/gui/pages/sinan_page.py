@@ -44,8 +44,11 @@ class SinanPage(ctk.CTkFrame):
         ),
         (
             ConsultaObitosService.ETAPA_LOGIN,
-            "Login manual",
-            "As credenciais são digitadas diretamente no SINAN."
+            "Login no SINAN",
+            (
+                "Automático quando ativado; o modo manual "
+                "continua disponível."
+            )
         ),
         (
             ConsultaObitosService.ETAPA_DENGUE_CONSULTA,
@@ -78,7 +81,10 @@ class SinanPage(ctk.CTkFrame):
         (
             AtualizacaoBasesService.ETAPA_ACESSO,
             "Acesso ao SINAN",
-            "Login manual quando solicitações ou downloads forem necessários."
+            (
+                "Login automático quando configurado, com fallback "
+                "manual quando necessário."
+            )
         ),
         (
             AtualizacaoBasesService.ETAPA_SOLICITACOES,
@@ -5807,8 +5813,10 @@ class SinanPage(ctk.CTkFrame):
                 mensagem=(
                     "Ainda faltam solicitações reais para hoje:\n\n"
                     f"{faltantes}\n\n"
-                    "O ArboHub abrirá o SINAN, aguardará seu login "
-                    "manual e enviará somente as solicitações "
+                    "O ArboHub abrirá o SINAN e tentará o login "
+                    "automático quando ele estiver configurado. Caso "
+                    "seja necessário, o login poderá continuar "
+                    "manualmente. Depois, serão enviadas somente as solicitações "
                     "faltantes. Cada número será salvo "
                     "imediatamente após aparecer na tela."
                 ),
@@ -5830,8 +5838,9 @@ class SinanPage(ctk.CTkFrame):
                     "As solicitações de hoje já estão salvas, "
                     "mas os ZIPs ainda precisam ser acompanhados "
                     "ou baixados.\n\n"
-                    "O SINAN será aberto e o login continuará "
-                    "manual."
+                    "O SINAN será aberto. O ArboHub tentará o login "
+                    "automático quando configurado e manterá o modo "
+                    "manual disponível."
                 ),
                 texto_confirmar="Abrir o SINAN",
                 texto_cancelar="Cancelar"

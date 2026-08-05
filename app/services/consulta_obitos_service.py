@@ -139,7 +139,9 @@ class ConsultaObitosService:
     # ------------------------------------------------------------------
 
     def _executar_fluxo(self):
-        navegador = NavegadorSinan()
+        navegador = NavegadorSinan(
+            usar_login_automatico=True
+        )
         agravo_atual: str | None = None
         etapa_atual = self.ETAPA_ABRIR_SINAN
 
@@ -163,18 +165,31 @@ class ConsultaObitosService:
             self._verificar_cancelamento()
 
             etapa_atual = self.ETAPA_LOGIN
-            self._emitir_etapa(
-                etapa_atual,
-                "Aguardando o login manual."
-            )
-            self._emitir_status(
-                "Aguardando o login manual no SINAN."
-            )
 
-            navegador.aguardar_login_manual(
-                tempo_limite_segundos=600,
-                cancelado=self._cancelamento.is_set
-            )
+            if navegador.login_automatico_concluido:
+                self._emitir_etapa(
+                    etapa_atual,
+                    "Login automático concluído."
+                )
+                self._emitir_status(
+                    "Login automático concluído com segurança."
+                )
+            else:
+                mensagem_login = (
+                    navegador.obter_mensagem_espera_login()
+                )
+                self._emitir_etapa(
+                    etapa_atual,
+                    mensagem_login
+                )
+                self._emitir_status(
+                    mensagem_login
+                )
+
+                navegador.aguardar_login_manual(
+                    tempo_limite_segundos=600,
+                    cancelado=self._cancelamento.is_set
+                )
 
             self._verificar_cancelamento()
 
