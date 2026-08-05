@@ -59,6 +59,18 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         for chave, valor in INTERVALOS.items()
     }
 
+    ESCALAS_INTERFACE = {
+        "90% — compacta": 90,
+        "100% — recomendada": 100,
+        "110% — ampliada": 110,
+        "125% — acessibilidade": 125
+    }
+
+    ESCALAS_INTERFACE_INVERSAS = {
+        valor: chave
+        for chave, valor in ESCALAS_INTERFACE.items()
+    }
+
     INTERVALOS_EXPORTACAO = {
         "10 segundos": 10,
         "15 segundos": 15,
@@ -165,6 +177,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self._criar_cabecalho()
         self._criar_secao_geral()
         self._criar_secao_dashboard()
+        self._criar_secao_escala_interface()
         self._criar_secao_login_sinan()
         self._criar_secao_caminhos_operacionais()
         self._criar_secao_exportacao_parcial()
@@ -176,6 +189,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
     def _criar_variaveis(self):
         geral = self.configuracoes[
             "geral"
+        ]
+        aparencia = self.configuracoes[
+            "aparencia"
         ]
         dashboard = self.configuracoes[
             "dashboard"
@@ -209,6 +225,17 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             value=geral[
                 "abrir_maximizado"
             ]
+        )
+        self.escala_interface_var = ctk.StringVar(
+            value=self.ESCALAS_INTERFACE_INVERSAS.get(
+                int(
+                    aparencia.get(
+                        "escala_percentual",
+                        100
+                    )
+                ),
+                "100% — recomendada"
+            )
         )
         self.dashboard_automatico_var = ctk.BooleanVar(
             value=dashboard[
@@ -599,9 +626,137 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             pady=12
         )
 
-    def _criar_secao_login_sinan(self):
+    def _criar_secao_escala_interface(self):
         painel = self._criar_painel(
             linha=3,
+            titulo="Aparência",
+            descricao=(
+                "Ajuste o tamanho dos textos e controles sem mudar "
+                "a identidade visual do ArboHub."
+            )
+        )
+
+        grade = ctk.CTkFrame(
+            painel,
+            fg_color="transparent"
+        )
+        grade.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 8)
+        )
+        grade.grid_columnconfigure(
+            (0, 1),
+            weight=1,
+            uniform="config_aparencia"
+        )
+
+        self._criar_opcao_menu(
+            master=grade,
+            linha=0,
+            coluna=0,
+            titulo="Escala da interface",
+            descricao=(
+                "Aumenta ou reduz textos, botões, campos e "
+                "espaçamentos dos componentes."
+            ),
+            variavel=self.escala_interface_var,
+            valores=list(
+                self.ESCALAS_INTERFACE.keys()
+            )
+        )
+
+        card_reinicio = self._criar_card_opcao(
+            master=grade,
+            linha=0,
+            coluna=1,
+            titulo="Aplicação segura",
+            descricao=(
+                "A escala é aplicada integralmente na próxima "
+                "abertura para evitar componentes com tamanhos mistos."
+            )
+        )
+
+        ctk.CTkLabel(
+            card_reinicio,
+            text="↻ Reinicie o ArboHub após salvar",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            text_color=Colors.INFO,
+            anchor="w"
+        ).grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(10, 16)
+        )
+
+        aviso = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7
+        )
+        aviso.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(0, 20)
+        )
+        aviso.grid_columnconfigure(
+            1,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text="i",
+            width=32,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=15,
+                weight="bold"
+            ),
+            text_color=Colors.INFO
+        ).grid(
+            row=0,
+            column=0,
+            padx=(12, 6),
+            pady=12
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text=(
+                "100% preserva o tamanho atual. 90% oferece mais "
+                "espaço; 110% e 125% melhoram a leitura. As páginas "
+                "roláveis continuam disponíveis nas escalas maiores."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=720
+        ).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 12),
+            pady=12
+        )
+
+    def _criar_secao_login_sinan(self):
+        painel = self._criar_painel(
+            linha=4,
             titulo="Acesso ao SINAN",
             descricao=(
                 "Configure o login automático sem guardar a senha "
@@ -959,7 +1114,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_caminhos_operacionais(self):
         painel = self._criar_painel(
-            linha=4,
+            linha=5,
             titulo="Pastas operacionais",
             descricao=(
                 "Defina os destinos usados pelo fluxo de Bases. "
@@ -1252,7 +1407,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_exportacao_parcial(self):
         painel = self._criar_painel(
-            linha=5,
+            linha=6,
             titulo="Exportação parcial",
             descricao=(
                 "Ajuste somente os tempos de acompanhamento do "
@@ -1439,7 +1594,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_notificacoes_supervisao(self):
         painel = self._criar_painel(
-            linha=6,
+            linha=7,
             titulo="Notificações e supervisão",
             descricao=(
                 "Defina sons locais do Windows e contatos "
@@ -1856,7 +2011,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_manutencao(self):
         painel = self._criar_painel(
-            linha=7,
+            linha=8,
             titulo="Testes e manutenção",
             descricao=(
                 "Ferramentas locais para repetir testes e acessar "
@@ -2635,7 +2790,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_sobre(self):
         painel = self._criar_painel(
-            linha=8,
+            linha=9,
             titulo="Sobre",
             descricao=(
                 "Informações desta instalação do ArboHub."
@@ -2756,7 +2911,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             fg_color="transparent"
         )
         rodape.grid(
-            row=9,
+            row=10,
             column=0,
             sticky="ew",
             padx=40,
@@ -3027,6 +3182,19 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
 
     def salvar_configuracoes(self):
+        escala_anterior = int(
+            self.configuracoes.get(
+                "aparencia",
+                {}
+            ).get(
+                "escala_percentual",
+                100
+            )
+        )
+        escala_percentual = self.ESCALAS_INTERFACE[
+            self.escala_interface_var.get()
+        ]
+
         try:
             self._validar_configuracao_login()
             caminhos = (
@@ -3064,7 +3232,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             return
 
         configuracoes = {
-            "versao": 5,
+            "versao": 6,
             "geral": {
                 "pagina_inicial": self.PAGINAS[
                     self.pagina_inicial_var.get()
@@ -3072,6 +3240,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "abrir_maximizado": (
                     self.abrir_maximizado_var.get()
                 )
+            },
+            "aparencia": {
+                "escala_percentual": escala_percentual
             },
             "dashboard": {
                 "atualizacao_automatica": (
@@ -3118,6 +3289,19 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 self.configuracoes
             )
 
+        escala_alterada = (
+            escala_percentual
+            != escala_anterior
+        )
+
+        mensagem_escala = (
+            "\n\nA escala da interface foi alterada para "
+            f"{escala_percentual}%. Feche e abra o ArboHub para "
+            "aplicar o novo tamanho em todas as telas."
+            if escala_alterada
+            else ""
+        )
+
         mostrar_dialogo_arbohub(
             master=self.winfo_toplevel(),
             titulo="Configurações salvas",
@@ -3127,8 +3311,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "O login do SINAN, as notificações, os contatos "
                 "institucionais, os caminhos e os tempos operacionais "
                 "serão usados nas próximas rotinas. A página inicial, "
-                "o estado da janela e o dashboard "
-                "continuam seguindo as preferências gerais."
+                "o estado da janela e o dashboard continuam seguindo "
+                "as preferências gerais."
+                + mensagem_escala
             ),
             tipo="sucesso",
             texto_botao="Entendi"
@@ -3140,8 +3325,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=self.winfo_toplevel(),
             titulo="Restaurar configurações?",
             mensagem=(
-                "As preferências gerais, o login automático, os "
-                "sons, os contatos de supervisão, os caminhos "
+                "As preferências gerais, a escala da interface, o "
+                "login automático, os sons, os contatos de supervisão, "
+                "os caminhos "
                 "operacionais e os tempos da exportação voltarão aos "
                 "valores padrão.\n\n"
                 "A credencial protegida pelo Windows será preservada, "
@@ -3166,6 +3352,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         geral = self.configuracoes[
             "geral"
+        ]
+        aparencia = self.configuracoes[
+            "aparencia"
         ]
         dashboard = self.configuracoes[
             "dashboard"
@@ -3196,6 +3385,17 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
         self.abrir_maximizado_var.set(
             geral["abrir_maximizado"]
+        )
+        self.escala_interface_var.set(
+            self.ESCALAS_INTERFACE_INVERSAS.get(
+                int(
+                    aparencia.get(
+                        "escala_percentual",
+                        100
+                    )
+                ),
+                "100% — recomendada"
+            )
         )
         self.dashboard_automatico_var.set(
             dashboard[
@@ -3352,10 +3552,12 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=self.winfo_toplevel(),
             titulo="Padrões restaurados",
             mensagem=(
-                "As configurações padrão foram restauradas. O login "
-                "automático foi desativado, os contatos de supervisão "
-                "foram limpos e os sons voltaram ao padrão. A credencial "
-                "segura continua preservada no Windows.\n\n"
+                "As configurações padrão foram restauradas. A escala "
+                "voltou para 100%, o login automático foi desativado, "
+                "os contatos de supervisão foram limpos e os sons "
+                "voltaram ao padrão. A credencial segura continua "
+                "preservada no Windows.\n\n"
+                "Feche e abra o ArboHub para aplicar a escala de 100%. "
                 "Teste as quatro pastas operacionais antes de iniciar "
                 "uma nova rotina de Bases."
             ),
