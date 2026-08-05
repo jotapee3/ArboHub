@@ -21,6 +21,9 @@ from app.services.manutencao_service import (
     ManutencaoService,
     PreviaResetBases
 )
+from app.services.notificacoes_service import (
+    NotificacoesService
+)
 
 
 class ConfiguracoesPage(ctk.CTkScrollableFrame):
@@ -146,6 +149,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self.manutencao_service = (
             ManutencaoService()
         )
+        self.notificacoes_service = (
+            NotificacoesService()
+        )
         self.configuracoes = (
             self.configuracoes_service.carregar()
         )
@@ -162,6 +168,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self._criar_secao_login_sinan()
         self._criar_secao_caminhos_operacionais()
         self._criar_secao_exportacao_parcial()
+        self._criar_secao_notificacoes_supervisao()
         self._criar_secao_manutencao()
         self._criar_secao_sobre()
         self._criar_rodape()
@@ -175,6 +182,12 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ]
         sinan = self.configuracoes[
             "sinan"
+        ]
+        notificacoes = self.configuracoes[
+            "notificacoes"
+        ]
+        supervisao = notificacoes[
+            "supervisao"
         ]
         operacional = self.configuracoes[
             "operacional"
@@ -240,6 +253,58 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             self.usuario_sinan_var.set(
                 usuario_armazenado
             )
+
+        self.som_conclusao_var = ctk.BooleanVar(
+            value=bool(
+                notificacoes.get(
+                    "som_conclusao",
+                    True
+                )
+            )
+        )
+        self.som_atencao_var = ctk.BooleanVar(
+            value=bool(
+                notificacoes.get(
+                    "som_atencao",
+                    True
+                )
+            )
+        )
+        self.som_exportacao_disponivel_var = (
+            ctk.BooleanVar(
+                value=bool(
+                    notificacoes.get(
+                        "som_exportacao_disponivel",
+                        False
+                    )
+                )
+            )
+        )
+        self.supervisora_nome_var = ctk.StringVar(
+            value=str(
+                supervisao.get(
+                    "nome",
+                    ""
+                )
+            )
+        )
+        self.supervisora_telefone_var = ctk.StringVar(
+            value=str(
+                supervisao.get(
+                    "telefone",
+                    ""
+                )
+            )
+        )
+        self.supervisora_email_var = ctk.StringVar(
+            value=str(
+                supervisao.get(
+                    "email",
+                    ""
+                )
+            )
+        )
+        self.label_status_som = None
 
         self.caminhos_vars = {
             chave: ctk.StringVar(
@@ -1372,9 +1437,426 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             pady=12
         )
 
-    def _criar_secao_manutencao(self):
+    def _criar_secao_notificacoes_supervisao(self):
         painel = self._criar_painel(
             linha=6,
+            titulo="Notificações e supervisão",
+            descricao=(
+                "Defina sons locais do Windows e contatos "
+                "institucionais usados nos avisos de pendência."
+            )
+        )
+
+        aviso = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        aviso.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 12)
+        )
+        aviso.grid_columnconfigure(
+            1,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text="🔔",
+            width=34,
+            font=ctk.CTkFont(
+                family="Segoe UI Emoji",
+                size=16
+            ),
+            text_color=Colors.INFO
+        ).grid(
+            row=0,
+            column=0,
+            padx=(12, 6),
+            pady=12
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text=(
+                "Os sons são reproduzidos pelo próprio Windows. "
+                "O ArboHub não envia e-mail, WhatsApp ou qualquer "
+                "mensagem automaticamente. Os dados de supervisão "
+                "ficam somente nas configurações locais."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=760
+        ).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 12),
+            pady=12
+        )
+
+        grade = ctk.CTkFrame(
+            painel,
+            fg_color="transparent"
+        )
+        grade.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(0, 20)
+        )
+        grade.grid_columnconfigure(
+            (0, 1),
+            weight=1,
+            uniform="notificacoes_supervisao"
+        )
+
+        sons = ctk.CTkFrame(
+            grade,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        sons.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(0, 6)
+        )
+        sons.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            sons,
+            text="Sons do Windows",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=13,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=14,
+            pady=(14, 3)
+        )
+
+        ctk.CTkLabel(
+            sons,
+            text=(
+                "Avisos discretos que nunca substituem as "
+                "mensagens visuais."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=330
+        ).grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=14,
+            pady=(0, 8)
+        )
+
+        opcoes_som = (
+            (
+                "Conclusão da rotina",
+                self.som_conclusao_var,
+                NotificacoesService.TIPO_CONCLUSAO
+            ),
+            (
+                "Rotina exige atenção",
+                self.som_atencao_var,
+                NotificacoesService.TIPO_ATENCAO
+            ),
+            (
+                "Exportação disponível",
+                self.som_exportacao_disponivel_var,
+                (
+                    NotificacoesService
+                    .TIPO_EXPORTACAO_DISPONIVEL
+                )
+            )
+        )
+
+        for indice, (
+            texto,
+            variavel,
+            tipo
+        ) in enumerate(
+            opcoes_som,
+            start=2
+        ):
+            ctk.CTkSwitch(
+                sons,
+                text=texto,
+                variable=variavel,
+                onvalue=True,
+                offvalue=False,
+                progress_color=Colors.PRIMARY,
+                button_color=Colors.TEXT_PRIMARY,
+                button_hover_color=Colors.TEXT_SECONDARY,
+                text_color=Colors.TEXT_SECONDARY,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=11,
+                    weight="bold"
+                )
+            ).grid(
+                row=indice,
+                column=0,
+                sticky="w",
+                padx=(14, 8),
+                pady=6
+            )
+
+            ctk.CTkButton(
+                sons,
+                text="Testar",
+                command=(
+                    lambda item=tipo:
+                        self.testar_som_notificacao(
+                            item
+                        )
+                ),
+                width=72,
+                height=28,
+                corner_radius=6,
+                fg_color=Colors.BUTTON,
+                hover_color=Colors.BUTTON_HOVER,
+                border_width=1,
+                border_color=Colors.BUTTON_BORDER,
+                text_color=Colors.TEXT_SECONDARY,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=10,
+                    weight="bold"
+                )
+            ).grid(
+                row=indice,
+                column=1,
+                sticky="e",
+                padx=(0, 14),
+                pady=6
+            )
+
+        self.label_status_som = ctk.CTkLabel(
+            sons,
+            text="○ Use “Testar” para conferir o volume do Windows.",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        )
+        self.label_status_som.grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=14,
+            pady=(8, 14)
+        )
+
+        supervisao = ctk.CTkFrame(
+            grade,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        supervisao.grid(
+            row=0,
+            column=1,
+            sticky="nsew",
+            padx=(6, 0)
+        )
+        supervisao.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            supervisao,
+            text="Supervisão",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=13,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(14, 3)
+        )
+
+        ctk.CTkLabel(
+            supervisao,
+            text=(
+                "Dados institucionais opcionais usados somente "
+                "para copiar contatos e o resumo da pendência."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=330
+        ).grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(0, 8)
+        )
+
+        campos = (
+            (
+                "Nome da supervisora",
+                self.supervisora_nome_var,
+                "Nome institucional"
+            ),
+            (
+                "Telefone institucional",
+                self.supervisora_telefone_var,
+                "(51) 0000-0000"
+            ),
+            (
+                "E-mail institucional",
+                self.supervisora_email_var,
+                "nome@instituicao.gov.br"
+            )
+        )
+
+        linha = 2
+
+        for (
+            titulo,
+            variavel,
+            placeholder
+        ) in campos:
+            ctk.CTkLabel(
+                supervisao,
+                text=titulo,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=10,
+                    weight="bold"
+                ),
+                text_color=Colors.TEXT_SECONDARY,
+                anchor="w"
+            ).grid(
+                row=linha,
+                column=0,
+                sticky="ew",
+                padx=14,
+                pady=(6, 4)
+            )
+
+            ctk.CTkEntry(
+                supervisao,
+                textvariable=variavel,
+                height=34,
+                corner_radius=6,
+                fg_color=Colors.INPUT,
+                border_color=Colors.INPUT_BORDER,
+                text_color=Colors.TEXT_PRIMARY,
+                placeholder_text=placeholder,
+                placeholder_text_color=Colors.TEXT_MUTED,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=11
+                )
+            ).grid(
+                row=linha + 1,
+                column=0,
+                sticky="ew",
+                padx=14
+            )
+
+            linha += 2
+
+        ctk.CTkLabel(
+            supervisao,
+            text=(
+                "Nenhum contato é enviado automaticamente."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        ).grid(
+            row=linha,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(10, 14)
+        )
+
+    def testar_som_notificacao(
+        self,
+        tipo: str
+    ):
+        reproduzido = (
+            self.notificacoes_service
+            .testar_som(
+                tipo
+            )
+        )
+
+        if self.label_status_som is None:
+            return
+
+        if reproduzido:
+            self.label_status_som.configure(
+                text="✓ Som solicitado ao Windows.",
+                text_color=Colors.SUCCESS
+            )
+        else:
+            self.label_status_som.configure(
+                text=(
+                    "× O som não pôde ser reproduzido neste sistema."
+                ),
+                text_color=Colors.ERROR
+            )
+
+    def _criar_secao_manutencao(self):
+        painel = self._criar_painel(
+            linha=7,
             titulo="Testes e manutenção",
             descricao=(
                 "Ferramentas locais para repetir testes e acessar "
@@ -2153,7 +2635,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_sobre(self):
         painel = self._criar_painel(
-            linha=7,
+            linha=8,
             titulo="Sobre",
             descricao=(
                 "Informações desta instalação do ArboHub."
@@ -2274,7 +2756,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             fg_color="transparent"
         )
         rodape.grid(
-            row=8,
+            row=9,
             column=0,
             sticky="ew",
             padx=40,
@@ -2553,13 +3035,27 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             exportacao = (
                 self._obter_configuracao_exportacao()
             )
+            supervisao = (
+                self.configuracoes_service
+                .validar_supervisao(
+                    {
+                        "nome":
+                            self.supervisora_nome_var.get(),
+                        "telefone":
+                            self.supervisora_telefone_var.get(),
+                        "email":
+                            self.supervisora_email_var.get()
+                    }
+                )
+            )
         except Exception as erro:
             mostrar_dialogo_arbohub(
                 master=self.winfo_toplevel(),
                 titulo="Configurações não salvas",
                 mensagem=(
-                    "Revise o acesso ao SINAN, as pastas e os "
-                    "tempos operacionais.\n\n"
+                    "Revise o acesso ao SINAN, as notificações, "
+                    "a supervisão, as pastas e os tempos "
+                    "operacionais.\n\n"
                     f"Detalhe: {erro}"
                 ),
                 tipo="erro",
@@ -2568,7 +3064,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             return
 
         configuracoes = {
-            "versao": 4,
+            "versao": 5,
             "geral": {
                 "pagina_inicial": self.PAGINAS[
                     self.pagina_inicial_var.get()
@@ -2589,6 +3085,18 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "login_automatico": (
                     self.login_automatico_var.get()
                 )
+            },
+            "notificacoes": {
+                "som_conclusao": (
+                    self.som_conclusao_var.get()
+                ),
+                "som_atencao": (
+                    self.som_atencao_var.get()
+                ),
+                "som_exportacao_disponivel": (
+                    self.som_exportacao_disponivel_var.get()
+                ),
+                "supervisao": supervisao
             },
             "operacional": {
                 "caminhos": caminhos,
@@ -2616,9 +3124,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             mensagem=(
                 "As preferências foram salvas para esta conta do "
                 "Windows.\n\n"
-                "O login do SINAN, os caminhos e os tempos "
-                "operacionais serão usados nas próximas rotinas. A "
-                "página inicial, o estado da janela e o dashboard "
+                "O login do SINAN, as notificações, os contatos "
+                "institucionais, os caminhos e os tempos operacionais "
+                "serão usados nas próximas rotinas. A página inicial, "
+                "o estado da janela e o dashboard "
                 "continuam seguindo as preferências gerais."
             ),
             tipo="sucesso",
@@ -2632,8 +3141,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             titulo="Restaurar configurações?",
             mensagem=(
                 "As preferências gerais, o login automático, os "
-                "caminhos operacionais e os tempos da exportação "
-                "voltarão aos valores padrão.\n\n"
+                "sons, os contatos de supervisão, os caminhos "
+                "operacionais e os tempos da exportação voltarão aos "
+                "valores padrão.\n\n"
                 "A credencial protegida pelo Windows será preservada, "
                 "mas o login automático ficará desativado. Nenhum "
                 "banco, relatório, ZIP ou DBF será alterado."
@@ -2662,6 +3172,12 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ]
         sinan = self.configuracoes[
             "sinan"
+        ]
+        notificacoes = self.configuracoes[
+            "notificacoes"
+        ]
+        supervisao = notificacoes[
+            "supervisao"
         ]
         operacional = self.configuracoes[
             "operacional"
@@ -2703,6 +3219,64 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
         self.senha_sinan_var.set("")
         self._atualizar_status_credencial()
+
+        self.som_conclusao_var.set(
+            bool(
+                notificacoes.get(
+                    "som_conclusao",
+                    True
+                )
+            )
+        )
+        self.som_atencao_var.set(
+            bool(
+                notificacoes.get(
+                    "som_atencao",
+                    True
+                )
+            )
+        )
+        self.som_exportacao_disponivel_var.set(
+            bool(
+                notificacoes.get(
+                    "som_exportacao_disponivel",
+                    False
+                )
+            )
+        )
+        self.supervisora_nome_var.set(
+            str(
+                supervisao.get(
+                    "nome",
+                    ""
+                )
+            )
+        )
+        self.supervisora_telefone_var.set(
+            str(
+                supervisao.get(
+                    "telefone",
+                    ""
+                )
+            )
+        )
+        self.supervisora_email_var.set(
+            str(
+                supervisao.get(
+                    "email",
+                    ""
+                )
+            )
+        )
+
+        if self.label_status_som is not None:
+            self.label_status_som.configure(
+                text=(
+                    "○ Padrões restaurados — use “Testar” "
+                    "para conferir."
+                ),
+                text_color=Colors.TEXT_MUTED
+            )
 
         for chave, _, _ in self.CAMINHOS_OPERACIONAIS:
             self.caminhos_vars[
@@ -2779,8 +3353,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             titulo="Padrões restaurados",
             mensagem=(
                 "As configurações padrão foram restauradas. O login "
-                "automático foi desativado, mas a credencial segura "
-                "continua preservada no Windows.\n\n"
+                "automático foi desativado, os contatos de supervisão "
+                "foram limpos e os sons voltaram ao padrão. A credencial "
+                "segura continua preservada no Windows.\n\n"
                 "Teste as quatro pastas operacionais antes de iniciar "
                 "uma nova rotina de Bases."
             ),

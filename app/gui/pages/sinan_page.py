@@ -22,6 +22,9 @@ from app.services.checkpoint_service import CheckpointService
 from app.services.consulta_obitos_service import (
     ConsultaObitosService
 )
+from app.services.notificacoes_service import (
+    NotificacoesService
+)
 
 
 class SinanPage(ctk.CTkFrame):
@@ -146,6 +149,9 @@ class SinanPage(ctk.CTkFrame):
                 checkpoint_service=self.checkpoint_service
             )
         )
+        self.notificacoes_service = (
+            NotificacoesService()
+        )
 
         self.layout_checkpoints_vertical = None
         self.layout_botoes_bases = None
@@ -174,6 +180,7 @@ class SinanPage(ctk.CTkFrame):
         }
         self._correcao_manual_bases_habilitada = False
         self._agravos_pendentes_bases: list[str] = []
+        self._dados_pendencia_bases: dict | None = None
 
         self.componentes_linha_tempo = {}
         self.componentes_linha_tempo_bases = {}
@@ -2924,6 +2931,96 @@ class SinanPage(ctk.CTkFrame):
             pady=12
         )
 
+        self.acoes_supervisao_bases = ctk.CTkFrame(
+            self.painel_alerta_processamento,
+            fg_color="transparent"
+        )
+        self.acoes_supervisao_bases.grid(
+            row=2,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            padx=(0, 12),
+            pady=(0, 12)
+        )
+        self.acoes_supervisao_bases.grid_columnconfigure(
+            3,
+            weight=1
+        )
+
+        self.botao_copiar_resumo_bases = ctk.CTkButton(
+            self.acoes_supervisao_bases,
+            text="Copiar resumo",
+            command=self._copiar_resumo_supervisao_bases,
+            width=112,
+            height=30,
+            corner_radius=6,
+            fg_color=Colors.BUTTON,
+            hover_color=Colors.BUTTON_HOVER,
+            border_width=1,
+            border_color=Colors.BUTTON_BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10,
+                weight="bold"
+            )
+        )
+        self.botao_copiar_resumo_bases.grid(
+            row=0,
+            column=0,
+            padx=(0, 6)
+        )
+
+        self.botao_copiar_telefone_bases = ctk.CTkButton(
+            self.acoes_supervisao_bases,
+            text="Copiar telefone",
+            command=self._copiar_telefone_supervisao_bases,
+            width=118,
+            height=30,
+            corner_radius=6,
+            fg_color=Colors.BUTTON,
+            hover_color=Colors.BUTTON_HOVER,
+            border_width=1,
+            border_color=Colors.BUTTON_BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10,
+                weight="bold"
+            )
+        )
+        self.botao_copiar_telefone_bases.grid(
+            row=0,
+            column=1,
+            padx=6
+        )
+
+        self.botao_copiar_email_bases = ctk.CTkButton(
+            self.acoes_supervisao_bases,
+            text="Copiar e-mail",
+            command=self._copiar_email_supervisao_bases,
+            width=108,
+            height=30,
+            corner_radius=6,
+            fg_color=Colors.BUTTON,
+            hover_color=Colors.BUTTON_HOVER,
+            border_width=1,
+            border_color=Colors.BUTTON_BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10,
+                weight="bold"
+            )
+        )
+        self.botao_copiar_email_bases.grid(
+            row=0,
+            column=2,
+            padx=6
+        )
+
+        self.acoes_supervisao_bases.grid_remove()
         self.painel_alerta_processamento.grid_remove()
 
         self.label_checkpoint_bases = ctk.CTkLabel(
@@ -4537,6 +4634,7 @@ class SinanPage(ctk.CTkFrame):
                 text_color=Colors.SUCCESS
             )
             self._atualizar_controles_automacao()
+            self.notificacoes_service.tocar_conclusao()
             return
 
         if tipo == ConsultaObitosService.EVENTO_CANCELADO:
@@ -4579,6 +4677,7 @@ class SinanPage(ctk.CTkFrame):
                 text_color=Colors.TEXT_SECONDARY
             )
             self._atualizar_controles_automacao()
+            self.notificacoes_service.tocar_atencao()
 
             messagebox.showerror(
                 title="Erro na verificação do SINAN",
@@ -4646,10 +4745,8 @@ class SinanPage(ctk.CTkFrame):
                     "Aviso de processamento do SINAN."
                 )
             )
-            try:
-                self.winfo_toplevel().bell()
-            except Exception:
-                pass
+            if dados.get("nivel") != "informacao":
+                self.notificacoes_service.tocar_atencao()
             return
 
         if tipo == AtualizacaoBasesService.EVENTO_CORRECAO_MANUAL:
@@ -4687,6 +4784,9 @@ class SinanPage(ctk.CTkFrame):
                 "Etapa em andamento."
             )
             dados = evento.get("dados", {})
+
+            if dados.get("arquivo_disponivel"):
+                self.notificacoes_service                    .tocar_exportacao_disponivel()
 
             if dados.get("arquivo_processado"):
                 agravo = dados.get("agravo")
@@ -4799,6 +4899,7 @@ class SinanPage(ctk.CTkFrame):
             self.registrar_operacao(
                 mensagem
             )
+            self.notificacoes_service.tocar_conclusao()
 
             mostrar_dialogo_arbohub(
                 master=self.winfo_toplevel(),
@@ -4887,6 +4988,7 @@ class SinanPage(ctk.CTkFrame):
             self.registrar_operacao(
                 f"Erro na atualização das bases: {mensagem}"
             )
+            self.notificacoes_service.tocar_atencao()
 
             mostrar_dialogo_arbohub(
                 master=self.winfo_toplevel(),
@@ -4959,6 +5061,8 @@ class SinanPage(ctk.CTkFrame):
         self.label_texto_alerta_bases.configure(
             text=texto
         )
+        self._dados_pendencia_bases = None
+        self.acoes_supervisao_bases.grid_remove()
         self.painel_alerta_processamento.grid()
 
         # A correção manual só é liberada quando o limite de
@@ -4976,6 +5080,8 @@ class SinanPage(ctk.CTkFrame):
             return
 
         self.painel_alerta_processamento.grid_remove()
+        self.acoes_supervisao_bases.grid_remove()
+        self._dados_pendencia_bases = None
         self._correcao_manual_bases_habilitada = False
         self._agravos_pendentes_bases = []
         self.botao_correcao_manual_bases.configure(
@@ -5133,6 +5239,9 @@ class SinanPage(ctk.CTkFrame):
             )
         )
         dados = evento.get("dados", {})
+        self._dados_pendencia_bases = dict(
+            dados
+        )
         tempo_limite_segundos = float(
             dados.get(
                 "tempo_limite_segundos",
@@ -5234,6 +5343,29 @@ class SinanPage(ctk.CTkFrame):
             text="Confirmar correção manual"
         )
 
+        supervisao = (
+            self.notificacoes_service
+            .obter_supervisao()
+        )
+        self.botao_copiar_resumo_bases.configure(
+            state="normal"
+        )
+        self.botao_copiar_telefone_bases.configure(
+            state=(
+                "normal"
+                if supervisao["telefone"]
+                else "disabled"
+            )
+        )
+        self.botao_copiar_email_bases.configure(
+            state=(
+                "normal"
+                if supervisao["email"]
+                else "disabled"
+            )
+        )
+        self.acoes_supervisao_bases.grid()
+
         self.label_status_base.configure(
             text=mensagem,
             text_color=Colors.TEXT_SECONDARY
@@ -5246,10 +5378,7 @@ class SinanPage(ctk.CTkFrame):
         )
         self.registrar_operacao(mensagem)
 
-        try:
-            self.winfo_toplevel().bell()
-        except Exception:
-            pass
+        self.notificacoes_service.tocar_atencao()
 
         mostrar_dialogo_arbohub(
             master=self.winfo_toplevel(),
@@ -5263,12 +5392,121 @@ class SinanPage(ctk.CTkFrame):
                 "identificados, validados e colocados nas pastas "
                 "correspondentes.\n\n"
                 "Informe sua supervisora sobre a pendência. "
+                "Os botões no painel permitem copiar um resumo "
+                "operacional, o telefone e o e-mail configurados.\n\n"
                 "Quando o ZIP faltante for obtido manualmente, "
                 "use “Confirmar correção manual” para que o "
                 "ArboHub valide e finalize a rotina."
             ),
             tipo="aviso",
             texto_botao="Entendi"
+        )
+
+    def _copiar_resumo_supervisao_bases(self):
+        dados = self._dados_pendencia_bases
+
+        if not dados:
+            self._informar_copia_bases(
+                "Nenhuma pendência está disponível para copiar.",
+                sucesso=False
+            )
+            return
+
+        resumo = (
+            self.notificacoes_service
+            .montar_resumo_pendencia(
+                dados
+            )
+        )
+        self._copiar_texto_bases(
+            texto=resumo,
+            descricao="Resumo operacional"
+        )
+
+    def _copiar_telefone_supervisao_bases(self):
+        supervisao = (
+            self.notificacoes_service
+            .obter_supervisao()
+        )
+        telefone = supervisao[
+            "telefone"
+        ]
+
+        if not telefone:
+            self._informar_copia_bases(
+                "Nenhum telefone institucional foi configurado.",
+                sucesso=False
+            )
+            return
+
+        self._copiar_texto_bases(
+            texto=telefone,
+            descricao="Telefone institucional"
+        )
+
+    def _copiar_email_supervisao_bases(self):
+        supervisao = (
+            self.notificacoes_service
+            .obter_supervisao()
+        )
+        email = supervisao[
+            "email"
+        ]
+
+        if not email:
+            self._informar_copia_bases(
+                "Nenhum e-mail institucional foi configurado.",
+                sucesso=False
+            )
+            return
+
+        self._copiar_texto_bases(
+            texto=email,
+            descricao="E-mail institucional"
+        )
+
+    def _copiar_texto_bases(
+        self,
+        texto: str,
+        descricao: str
+    ):
+        try:
+            janela = self.winfo_toplevel()
+            janela.clipboard_clear()
+            janela.clipboard_append(
+                texto
+            )
+            janela.update_idletasks()
+        except Exception as erro:
+            self._informar_copia_bases(
+                (
+                    f"{descricao} não pôde ser copiado. "
+                    f"Detalhe: {erro}"
+                ),
+                sucesso=False
+            )
+            return
+
+        self._informar_copia_bases(
+            f"{descricao} copiado para a área de transferência.",
+            sucesso=True
+        )
+        self.registrar_operacao(
+            f"{descricao} copiado sem dados de pacientes."
+        )
+
+    def _informar_copia_bases(
+        self,
+        mensagem: str,
+        sucesso: bool
+    ):
+        self.label_status_base.configure(
+            text=mensagem,
+            text_color=(
+                Colors.SUCCESS
+                if sucesso
+                else Colors.TEXT_SECONDARY
+            )
         )
 
     def _atualizar_controles_bases(
