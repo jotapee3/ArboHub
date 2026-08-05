@@ -356,22 +356,32 @@ class AtualizacaoBasesService:
                 )
 
                 navegador = NavegadorSinan(
-                    permitir_downloads=True
+                    permitir_downloads=True,
+                    usar_login_automatico=True
                 )
                 pagina = navegador.abrir()
 
-                self._emitir_etapa(
-                    etapa=self._etapa_atual,
-                    estado="em_andamento",
-                    mensagem=(
-                        "Aguardando o login manual no SINAN."
+                if navegador.login_automatico_concluido:
+                    self._emitir_etapa(
+                        etapa=self._etapa_atual,
+                        estado="em_andamento",
+                        mensagem=(
+                            "Login automático concluído com segurança."
+                        )
                     )
-                )
+                else:
+                    self._emitir_etapa(
+                        etapa=self._etapa_atual,
+                        estado="em_andamento",
+                        mensagem=(
+                            navegador.obter_mensagem_espera_login()
+                        )
+                    )
 
-                self._aguardar_login_cancelavel(
-                    navegador=navegador,
-                    tempo_limite_segundos=600
-                )
+                    self._aguardar_login_cancelavel(
+                        navegador=navegador,
+                        tempo_limite_segundos=600
+                    )
 
                 self._emitir_etapa(
                     etapa=self._etapa_atual,

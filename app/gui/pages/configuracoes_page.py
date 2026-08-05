@@ -14,6 +14,9 @@ from app.gui.themes.colors import Colors
 from app.services.configuracoes_service import (
     ConfiguracoesService
 )
+from app.services.credenciais_service import (
+    CredenciaisService
+)
 from app.services.manutencao_service import (
     ManutencaoService,
     PreviaResetBases
@@ -24,8 +27,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
     """
     Preferências gerais do ArboHub.
 
-    As preferências operacionais desta versão não armazenam
-    credenciais e não acessam o conteúdo interno dos DBFs.
+    As preferências comuns ficam no JSON local. A credencial do
+    SINAN, quando usada, é mantida exclusivamente pelo Gerenciador
+    de Credenciais do Windows. O conteúdo interno dos DBFs não é
+    acessado por esta página.
     """
 
     PAGINAS = {
@@ -135,6 +140,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self.configuracoes_service = (
             ConfiguracoesService()
         )
+        self.credenciais_service = (
+            CredenciaisService()
+        )
         self.manutencao_service = (
             ManutencaoService()
         )
@@ -151,6 +159,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self._criar_cabecalho()
         self._criar_secao_geral()
         self._criar_secao_dashboard()
+        self._criar_secao_login_sinan()
         self._criar_secao_caminhos_operacionais()
         self._criar_secao_exportacao_parcial()
         self._criar_secao_manutencao()
@@ -163,6 +172,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ]
         dashboard = self.configuracoes[
             "dashboard"
+        ]
+        sinan = self.configuracoes[
+            "sinan"
         ]
         operacional = self.configuracoes[
             "operacional"
@@ -198,6 +210,36 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "60 segundos"
             )
         )
+
+        self.login_automatico_var = ctk.BooleanVar(
+            value=bool(
+                sinan.get(
+                    "login_automatico",
+                    False
+                )
+            )
+        )
+        self.usuario_sinan_var = ctk.StringVar(
+            value=""
+        )
+        self.senha_sinan_var = ctk.StringVar(
+            value=""
+        )
+        self.label_status_credencial = None
+        self.entry_senha_sinan = None
+
+        try:
+            usuario_armazenado = (
+                self.credenciais_service
+                .obter_usuario()
+            )
+        except Exception:
+            usuario_armazenado = None
+
+        if usuario_armazenado:
+            self.usuario_sinan_var.set(
+                usuario_armazenado
+            )
 
         self.caminhos_vars = {
             chave: ctk.StringVar(
@@ -492,9 +534,367 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             pady=12
         )
 
-    def _criar_secao_caminhos_operacionais(self):
+    def _criar_secao_login_sinan(self):
         painel = self._criar_painel(
             linha=3,
+            titulo="Acesso ao SINAN",
+            descricao=(
+                "Configure o login automático sem guardar a senha "
+                "nos arquivos do ArboHub."
+            )
+        )
+
+        aviso = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.SURFACE_HOVER,
+            corner_radius=7,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        aviso.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 12)
+        )
+        aviso.grid_columnconfigure(
+            1,
+            weight=1
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text="🔐",
+            width=34,
+            font=ctk.CTkFont(
+                family="Segoe UI Emoji",
+                size=16
+            ),
+            text_color=Colors.INFO
+        ).grid(
+            row=0,
+            column=0,
+            padx=(12, 6),
+            pady=12
+        )
+
+        ctk.CTkLabel(
+            aviso,
+            text=(
+                "A credencial é armazenada pelo Gerenciador de "
+                "Credenciais do Windows e fica vinculada a esta "
+                "conta do Windows. A senha não entra no JSON, no "
+                "banco SQLite, no GitHub ou nos logs."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w",
+            justify="left",
+            wraplength=720
+        ).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 12),
+            pady=12
+        )
+
+        grade = ctk.CTkFrame(
+            painel,
+            fg_color="transparent"
+        )
+        grade.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(0, 6)
+        )
+        grade.grid_columnconfigure(
+            (0, 1),
+            weight=1,
+            uniform="config_login_sinan"
+        )
+
+        card_login = self._criar_card_opcao(
+            master=grade,
+            linha=0,
+            coluna=0,
+            titulo="Login automático",
+            descricao=(
+                "Tenta autenticar no domínio oficial do SINAN. "
+                "Se não funcionar, o navegador permanece aberto "
+                "para login manual."
+            )
+        )
+
+        ctk.CTkSwitch(
+            card_login,
+            text="Ativado",
+            variable=self.login_automatico_var,
+            onvalue=True,
+            offvalue=False,
+            progress_color=Colors.PRIMARY,
+            button_color=Colors.TEXT_PRIMARY,
+            button_hover_color=Colors.TEXT_SECONDARY,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            )
+        ).grid(
+            row=2,
+            column=0,
+            sticky="w",
+            padx=14,
+            pady=(10, 16)
+        )
+
+        card_status = self._criar_card_opcao(
+            master=grade,
+            linha=0,
+            coluna=1,
+            titulo="Credencial protegida",
+            descricao=(
+                "O ArboHub consulta apenas a entrada ArboHub/SINAN "
+                "do cofre do usuário atual."
+            )
+        )
+
+        self.label_status_credencial = ctk.CTkLabel(
+            card_status,
+            text="Verificando o Windows...",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=330
+        )
+        self.label_status_credencial.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(10, 16)
+        )
+
+        credenciais = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        credenciais.grid(
+            row=4,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(0, 20)
+        )
+        credenciais.grid_columnconfigure(
+            (0, 1),
+            weight=1,
+            uniform="campos_credencial_sinan"
+        )
+
+        ctk.CTkLabel(
+            credenciais,
+            text="Usuário",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(14, 7),
+            pady=(14, 5)
+        )
+
+        ctk.CTkLabel(
+            credenciais,
+            text="Senha",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(7, 14),
+            pady=(14, 5)
+        )
+
+        ctk.CTkEntry(
+            credenciais,
+            textvariable=self.usuario_sinan_var,
+            height=36,
+            corner_radius=6,
+            fg_color=Colors.INPUT,
+            border_color=Colors.INPUT_BORDER,
+            text_color=Colors.TEXT_PRIMARY,
+            placeholder_text="Usuário do SINAN",
+            placeholder_text_color=Colors.TEXT_MUTED,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            )
+        ).grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=(14, 7)
+        )
+
+        self.entry_senha_sinan = ctk.CTkEntry(
+            credenciais,
+            textvariable=self.senha_sinan_var,
+            show="●",
+            height=36,
+            corner_radius=6,
+            fg_color=Colors.INPUT,
+            border_color=Colors.INPUT_BORDER,
+            text_color=Colors.TEXT_PRIMARY,
+            placeholder_text=(
+                "Digite apenas para salvar ou substituir"
+            ),
+            placeholder_text_color=Colors.TEXT_MUTED,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            )
+        )
+        self.entry_senha_sinan.grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(7, 14)
+        )
+
+        botoes = ctk.CTkFrame(
+            credenciais,
+            fg_color="transparent"
+        )
+        botoes.grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=14,
+            pady=(12, 14)
+        )
+        botoes.grid_columnconfigure(
+            3,
+            weight=1
+        )
+
+        ctk.CTkButton(
+            botoes,
+            text="Salvar credencial",
+            command=self.salvar_credencial_sinan,
+            width=145,
+            height=34,
+            corner_radius=6,
+            fg_color=Colors.PRIMARY,
+            hover_color=Colors.PRIMARY_HOVER,
+            text_color=Colors.TEXT_PRIMARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            )
+        ).grid(
+            row=0,
+            column=0,
+            padx=(0, 8)
+        )
+
+        ctk.CTkButton(
+            botoes,
+            text="Verificar armazenamento",
+            command=self.verificar_credencial_sinan,
+            width=175,
+            height=34,
+            corner_radius=6,
+            fg_color=Colors.BUTTON,
+            hover_color=Colors.BUTTON_HOVER,
+            border_width=1,
+            border_color=Colors.BUTTON_BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            )
+        ).grid(
+            row=0,
+            column=1,
+            padx=(0, 8)
+        )
+
+        ctk.CTkButton(
+            botoes,
+            text="Remover credencial",
+            command=self.remover_credencial_sinan,
+            width=155,
+            height=34,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            border_width=1,
+            border_color=Colors.ERROR,
+            text_color=Colors.ERROR,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            )
+        ).grid(
+            row=0,
+            column=2
+        )
+
+        ctk.CTkLabel(
+            botoes,
+            text=(
+                "A senha nunca é exibida novamente depois de salva."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="e"
+        ).grid(
+            row=0,
+            column=3,
+            sticky="e",
+            padx=(12, 0)
+        )
+
+        self._atualizar_status_credencial()
+
+    def _criar_secao_caminhos_operacionais(self):
+        painel = self._criar_painel(
+            linha=4,
             titulo="Pastas operacionais",
             descricao=(
                 "Defina os destinos usados pelo fluxo de Bases. "
@@ -787,7 +1187,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_exportacao_parcial(self):
         painel = self._criar_painel(
-            linha=4,
+            linha=5,
             titulo="Exportação parcial",
             descricao=(
                 "Ajuste somente os tempos de acompanhamento do "
@@ -974,7 +1374,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_manutencao(self):
         painel = self._criar_painel(
-            linha=5,
+            linha=6,
             titulo="Testes e manutenção",
             descricao=(
                 "Ferramentas locais para repetir testes e acessar "
@@ -1288,6 +1688,211 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 texto_botao="Entendi"
             )
 
+    def salvar_credencial_sinan(self):
+        usuario = self.usuario_sinan_var.get().strip()
+        senha = self.senha_sinan_var.get()
+
+        try:
+            self.credenciais_service.salvar(
+                usuario=usuario,
+                senha=senha
+            )
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Credencial não salva",
+                mensagem=str(erro),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
+            return
+
+        self.senha_sinan_var.set("")
+        self.login_automatico_var.set(True)
+        self._atualizar_status_credencial()
+
+        mostrar_dialogo_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Credencial protegida pelo Windows",
+            mensagem=(
+                "A credencial do SINAN foi salva no Gerenciador de "
+                "Credenciais desta conta do Windows.\n\n"
+                "O login automático foi marcado como ativo nesta "
+                "tela. Clique em Salvar alterações para aplicar essa "
+                "preferência às próximas rotinas."
+            ),
+            tipo="sucesso",
+            texto_botao="Entendi"
+        )
+
+    def verificar_credencial_sinan(self):
+        credencial = None
+
+        try:
+            credencial = self.credenciais_service.obter()
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Não foi possível verificar",
+                mensagem=str(erro),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
+            return
+
+        if credencial is None:
+            self._atualizar_status_credencial()
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Nenhuma credencial encontrada",
+                mensagem=(
+                    "O Windows não encontrou a entrada segura "
+                    "ArboHub/SINAN para esta conta."
+                ),
+                tipo="informacao",
+                texto_botao="Entendi"
+            )
+            return
+
+        usuario = credencial.usuario
+        credencial = None
+        self.usuario_sinan_var.set(usuario)
+        self._atualizar_status_credencial()
+
+        mostrar_dialogo_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Armazenamento verificado",
+            mensagem=(
+                "O Windows conseguiu recuperar a credencial segura "
+                f"do usuário {usuario}.\n\n"
+                "A senha não foi exibida. A autenticação real será "
+                "confirmada somente ao abrir uma rotina do SINAN."
+            ),
+            tipo="sucesso",
+            texto_botao="Entendi"
+        )
+
+    def remover_credencial_sinan(self):
+        confirmou = solicitar_confirmacao_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Remover credencial do SINAN?",
+            mensagem=(
+                "A entrada ArboHub/SINAN será removida do "
+                "Gerenciador de Credenciais desta conta do Windows.\n\n"
+                "O login manual continuará disponível e nenhum dado "
+                "operacional será alterado."
+            ),
+            texto_confirmar="Remover credencial",
+            texto_cancelar="Cancelar",
+            tipo="aviso"
+        )
+
+        if not confirmou:
+            return
+
+        try:
+            removida = self.credenciais_service.remover()
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Credencial não removida",
+                mensagem=str(erro),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
+            return
+
+        self.usuario_sinan_var.set("")
+        self.senha_sinan_var.set("")
+        self.login_automatico_var.set(False)
+
+        configuracoes_salvas = (
+            self.configuracoes_service.carregar()
+        )
+        configuracoes_salvas.setdefault(
+            "sinan",
+            {}
+        )["login_automatico"] = False
+        self.configuracoes = (
+            self.configuracoes_service.salvar(
+                configuracoes_salvas
+            )
+        )
+
+        if callable(self.ao_salvar):
+            self.ao_salvar(
+                self.configuracoes
+            )
+
+        self._atualizar_status_credencial()
+
+        mostrar_dialogo_arbohub(
+            master=self.winfo_toplevel(),
+            titulo="Credencial removida",
+            mensagem=(
+                "A credencial segura foi removida e o login "
+                "automático foi desativado."
+                if removida
+                else (
+                    "Nenhuma credencial estava armazenada. O login "
+                    "automático foi desativado."
+                )
+            ),
+            tipo="sucesso",
+            texto_botao="Entendi"
+        )
+
+    def _validar_configuracao_login(self) -> None:
+        if not self.login_automatico_var.get():
+            return
+
+        try:
+            existe = self.credenciais_service.existe()
+        except Exception as erro:
+            raise RuntimeError(
+                "Não foi possível acessar o Gerenciador de "
+                f"Credenciais do Windows. Detalhe: {erro}"
+            ) from erro
+
+        if not existe:
+            raise ValueError(
+                "Salve uma credencial do SINAN antes de ativar o "
+                "login automático."
+            )
+
+    def _atualizar_status_credencial(self):
+        if self.label_status_credencial is None:
+            return
+
+        try:
+            usuario = (
+                self.credenciais_service
+                .obter_usuario()
+            )
+        except Exception as erro:
+            self.label_status_credencial.configure(
+                text=(
+                    "✕ Windows indisponível: "
+                    + str(erro)
+                ),
+                text_color=Colors.ERROR
+            )
+            return
+
+        if usuario:
+            self.label_status_credencial.configure(
+                text=(
+                    "✓ Credencial armazenada para "
+                    + usuario
+                ),
+                text_color=Colors.SUCCESS
+            )
+        else:
+            self.label_status_credencial.configure(
+                text="○ Nenhuma credencial armazenada",
+                text_color=Colors.TEXT_MUTED
+            )
+
     def _rotulo_por_valor(
         self,
         opcoes: dict[str, int],
@@ -1548,7 +2153,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def _criar_secao_sobre(self):
         painel = self._criar_painel(
-            linha=6,
+            linha=7,
             titulo="Sobre",
             descricao=(
                 "Informações desta instalação do ArboHub."
@@ -1669,7 +2274,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             fg_color="transparent"
         )
         rodape.grid(
-            row=7,
+            row=8,
             column=0,
             sticky="ew",
             padx=40,
@@ -1941,6 +2546,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
     def salvar_configuracoes(self):
         try:
+            self._validar_configuracao_login()
             caminhos = (
                 self._validar_caminhos_para_salvar()
             )
@@ -1952,7 +2558,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 master=self.winfo_toplevel(),
                 titulo="Configurações não salvas",
                 mensagem=(
-                    "Revise as pastas e os tempos operacionais.\n\n"
+                    "Revise o acesso ao SINAN, as pastas e os "
+                    "tempos operacionais.\n\n"
                     f"Detalhe: {erro}"
                 ),
                 tipo="erro",
@@ -1961,7 +2568,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             return
 
         configuracoes = {
-            "versao": 3,
+            "versao": 4,
             "geral": {
                 "pagina_inicial": self.PAGINAS[
                     self.pagina_inicial_var.get()
@@ -1977,6 +2584,11 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "intervalo_segundos": self.INTERVALOS[
                     self.intervalo_dashboard_var.get()
                 ]
+            },
+            "sinan": {
+                "login_automatico": (
+                    self.login_automatico_var.get()
+                )
             },
             "operacional": {
                 "caminhos": caminhos,
@@ -2004,10 +2616,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             mensagem=(
                 "As preferências foram salvas para esta conta do "
                 "Windows.\n\n"
-                "Os caminhos e tempos operacionais serão usados na "
-                "próxima abertura da página SINAN. A página inicial, "
-                "o estado da janela e o dashboard continuam seguindo "
-                "as preferências gerais."
+                "O login do SINAN, os caminhos e os tempos "
+                "operacionais serão usados nas próximas rotinas. A "
+                "página inicial, o estado da janela e o dashboard "
+                "continuam seguindo as preferências gerais."
             ),
             tipo="sucesso",
             texto_botao="Entendi"
@@ -2019,9 +2631,12 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=self.winfo_toplevel(),
             titulo="Restaurar configurações?",
             mensagem=(
-                "As preferências gerais, os caminhos operacionais e "
-                "os tempos da exportação voltarão aos valores padrão.\n\n"
-                "Nenhum banco, relatório, ZIP ou DBF será alterado."
+                "As preferências gerais, o login automático, os "
+                "caminhos operacionais e os tempos da exportação "
+                "voltarão aos valores padrão.\n\n"
+                "A credencial protegida pelo Windows será preservada, "
+                "mas o login automático ficará desativado. Nenhum "
+                "banco, relatório, ZIP ou DBF será alterado."
             ),
             texto_confirmar="Restaurar padrões",
             texto_cancelar="Cancelar",
@@ -2044,6 +2659,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ]
         dashboard = self.configuracoes[
             "dashboard"
+        ]
+        sinan = self.configuracoes[
+            "sinan"
         ]
         operacional = self.configuracoes[
             "operacional"
@@ -2075,6 +2693,16 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 ]
             ]
         )
+        self.login_automatico_var.set(
+            bool(
+                sinan.get(
+                    "login_automatico",
+                    False
+                )
+            )
+        )
+        self.senha_sinan_var.set("")
+        self._atualizar_status_credencial()
 
         for chave, _, _ in self.CAMINHOS_OPERACIONAIS:
             self.caminhos_vars[
@@ -2150,7 +2778,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=self.winfo_toplevel(),
             titulo="Padrões restaurados",
             mensagem=(
-                "As configurações padrão foram restauradas.\n\n"
+                "As configurações padrão foram restauradas. O login "
+                "automático foi desativado, mas a credencial segura "
+                "continua preservada no Windows.\n\n"
                 "Teste as quatro pastas operacionais antes de iniciar "
                 "uma nova rotina de Bases."
             ),

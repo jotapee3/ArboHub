@@ -16,7 +16,7 @@ class ConfiguracoesService:
     cada conta do Windows tenha suas próprias preferências.
     """
 
-    VERSAO_CONFIGURACOES = 3
+    VERSAO_CONFIGURACOES = 4
 
     PAGINAS_VALIDAS = {
         "inicio",
@@ -120,6 +120,9 @@ class ConfiguracoesService:
             "dashboard": {
                 "atualizacao_automatica": True,
                 "intervalo_segundos": 60
+            },
+            "sinan": {
+                "login_automatico": False
             },
             "operacional": {
                 "caminhos": self.obter_caminhos_padroes(),
@@ -567,6 +570,10 @@ class ConfiguracoesService:
             "dashboard",
             {}
         )
+        sinan = configuracoes.get(
+            "sinan",
+            {}
+        )
         operacional = configuracoes.get(
             "operacional",
             {}
@@ -635,6 +642,14 @@ class ConfiguracoesService:
                     )
                 ),
                 "intervalo_segundos": intervalo
+            },
+            "sinan": {
+                "login_automatico": bool(
+                    sinan.get(
+                        "login_automatico",
+                        False
+                    )
+                )
             },
             "operacional": {
                 "caminhos": caminhos,
