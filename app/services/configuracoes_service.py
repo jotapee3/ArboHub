@@ -16,7 +16,7 @@ class ConfiguracoesService:
     cada conta do Windows tenha suas próprias preferências.
     """
 
-    VERSAO_CONFIGURACOES = 5
+    VERSAO_CONFIGURACOES = 6
 
     PAGINAS_VALIDAS = {
         "inicio",
@@ -29,6 +29,13 @@ class ConfiguracoesService:
         60,
         120,
         300
+    }
+
+    ESCALAS_INTERFACE_VALIDAS = {
+        90,
+        100,
+        110,
+        125
     }
 
     INTERVALOS_EXPORTACAO_VALIDOS = {
@@ -116,6 +123,9 @@ class ConfiguracoesService:
             "geral": {
                 "pagina_inicial": "inicio",
                 "abrir_maximizado": False
+            },
+            "aparencia": {
+                "escala_percentual": 100
             },
             "dashboard": {
                 "atualizacao_automatica": True,
@@ -685,6 +695,10 @@ class ConfiguracoesService:
             "geral",
             {}
         )
+        aparencia = configuracoes.get(
+            "aparencia",
+            {}
+        )
         dashboard = configuracoes.get(
             "dashboard",
             {}
@@ -734,6 +748,14 @@ class ConfiguracoesService:
             60
         )
 
+        escala_percentual = self._inteiro_valido(
+            aparencia.get(
+                "escala_percentual"
+            ),
+            self.ESCALAS_INTERFACE_VALIDAS,
+            100
+        )
+
         caminhos_padrao = self.obter_caminhos_padroes()
         caminhos = {
             chave: (
@@ -762,6 +784,9 @@ class ConfiguracoesService:
                         False
                     )
                 )
+            },
+            "aparencia": {
+                "escala_percentual": escala_percentual
             },
             "dashboard": {
                 "atualizacao_automatica": bool(
