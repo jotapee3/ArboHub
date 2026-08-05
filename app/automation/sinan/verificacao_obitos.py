@@ -1100,6 +1100,16 @@ class VerificacaoObitos:
     # ------------------------------------------------------------------
 
     def _garantir_periodo_e_datas(self):
+        """
+        Garante o período e as duas datas mesmo quando o SINAN
+        carrega o formulário em etapas.
+
+        Em conexão lenta, o rótulo "Data Final" pode aparecer antes
+        do respectivo input, ou o DOM pode ser reconstruído por AJAX.
+        Essas situações são transitórias e não devem encerrar a
+        rotina imediatamente.
+        """
+
         if (
             self._data_inicial_esperada is None
             or self._data_final_esperada is None
@@ -1108,57 +1118,95 @@ class VerificacaoObitos:
                 "As datas esperadas ainda não foram definidas."
             )
 
-        for _ in range(3):
-            contexto = self._localizar_contexto_formulario()
+        limite = (
+            monotonic()
+            + self.TEMPO_FORMULARIO_SEGUNDOS
+        )
+        ultima_falha: Exception | None = None
 
-            if not self._periodo_data_esta_selecionado():
-                self._selecionar_periodo_data(
-                    contexto
+        while monotonic() < limite:
+            self._garantir_pagina_aberta()
+
+            try:
+                if self._processamento_sinan_visivel():
+                    self._aguardar_fim_processamento()
+
+                contexto = self._localizar_contexto_formulario()
+
+                if not self._periodo_data_esta_selecionado():
+                    marcador_ajax = self._marcar_estado_ajax()
+
+                    self._selecionar_periodo_data(
+                        contexto
+                    )
+
+                    self._aguardar_ajax_apos_acao(
+                        marcador_ajax=marcador_ajax,
+                        descricao="Período de Notificação"
+                    )
+
+                contexto = self._localizar_contexto_formulario()
+
+                campo_inicial = (
+                    self._localizar_input_por_rotulo(
+                        contexto=contexto,
+                        rotulo="Data Inicial",
+                        indice_fallback=0
+                    )
                 )
 
-            contexto = self._localizar_contexto_formulario()
+                if (
+                    campo_inicial.input_value().strip()
+                    != self._data_inicial_esperada
+                ):
+                    self._preencher_input(
+                        campo=campo_inicial,
+                        valor=self._data_inicial_esperada,
+                        nome_campo="Data Inicial"
+                    )
 
-            campo_inicial = self._localizar_input_por_rotulo(
-                contexto=contexto,
-                rotulo="Data Inicial",
-                indice_fallback=0
-            )
+                # O Tab do primeiro campo pode provocar uma
+                # reconstrução parcial do formulário. O contexto e
+                # o locator são obtidos novamente antes da Data Final.
+                contexto = self._localizar_contexto_formulario()
 
-            if (
-                campo_inicial.input_value().strip()
-                != self._data_inicial_esperada
-            ):
-                self._preencher_input(
-                    campo=campo_inicial,
-                    valor=self._data_inicial_esperada,
-                    nome_campo="Data Inicial"
+                campo_final = self._localizar_input_por_rotulo(
+                    contexto=contexto,
+                    rotulo="Data Final",
+                    indice_fallback=1
                 )
 
-            contexto = self._localizar_contexto_formulario()
+                if (
+                    campo_final.input_value().strip()
+                    != self._data_final_esperada
+                ):
+                    self._preencher_input(
+                        campo=campo_final,
+                        valor=self._data_final_esperada,
+                        nome_campo="Data Final"
+                    )
 
-            campo_final = self._localizar_input_por_rotulo(
-                contexto=contexto,
-                rotulo="Data Final",
-                indice_fallback=1
-            )
+                if self._periodo_e_datas_estao_corretos():
+                    return
 
-            if (
-                campo_final.input_value().strip()
-                != self._data_final_esperada
-            ):
-                self._preencher_input(
-                    campo=campo_final,
-                    valor=self._data_final_esperada,
-                    nome_campo="Data Final"
-                )
+            except Exception as erro:
+                # Campo ausente, locator invalidado ou formulário
+                # parcialmente carregado são falhas transitórias.
+                ultima_falha = erro
 
-            if self._periodo_e_datas_estao_corretos():
-                return
+            self.pagina.wait_for_timeout(250)
 
-            self.pagina.wait_for_timeout(40)
+        detalhe = (
+            f" Última tentativa: {ultima_falha}"
+            if ultima_falha
+            else ""
+        )
 
         raise RuntimeError(
-            "O SINAN apagou ou alterou as datas repetidamente."
+            "O SINAN não disponibilizou os campos de período e "
+            "datas dentro do tempo esperado. Verifique a conexão "
+            "e tente novamente."
+            + detalhe
         )
 
     def _selecionar_periodo_data(
