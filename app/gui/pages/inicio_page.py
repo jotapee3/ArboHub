@@ -20,18 +20,18 @@ class InicioPage(ctk.CTkScrollableFrame):
     em um calendário inspirado no painel de contribuições do GitHub.
     """
 
-    COR_CALENDARIO_VAZIO = "#21262d"
-    COR_CALENDARIO_BORDA = "#30363d"
+    COR_CALENDARIO_VAZIO = Colors.CALENDAR_EMPTY
+    COR_CALENDARIO_BORDA = Colors.CALENDAR_BORDER
     CORES_NIVEIS = {
-        0: "#21262d",
-        1: "#263a2d",
-        2: "#2f6f44",
-        3: "#3fb950",
-        4: "#56d364"
+        0: Colors.CALENDAR_LEVEL_0,
+        1: Colors.CALENDAR_LEVEL_1,
+        2: Colors.CALENDAR_LEVEL_2,
+        3: Colors.CALENDAR_LEVEL_3,
+        4: Colors.CALENDAR_LEVEL_4
     }
 
-    COR_AVISO = "#D29922"
-    COR_ERRO = "#F85149"
+    COR_AVISO = Colors.WARNING
+    COR_ERRO = Colors.ERROR
 
     def __init__(
         self,
@@ -829,10 +829,11 @@ class InicioPage(ctk.CTkScrollableFrame):
         nome_arquivo: str
     ) -> ctk.CTkImage | None:
         """
-        Carrega as logos de SINAN e GAL sem alterar o layout dos cards.
+        Carrega versões com contraste adaptado ao tema.
 
-        Se o arquivo não estiver disponível, o card usa automaticamente
-        a letra original como fallback.
+        As cores oficiais das logos de SINAN e GAL são preservadas.
+        Apenas o contorno muda para manter legibilidade em fundos
+        claros e escuros.
         """
 
         if nome_arquivo in self._icones_sistemas:
@@ -844,31 +845,76 @@ class InicioPage(ctk.CTkScrollableFrame):
             __file__
         ).resolve().parents[3]
 
-        candidatos = (
+        caminhos_base = (
             raiz_projeto
             / "assets"
-            / "sistemas"
-            / nome_arquivo,
+            / "sistemas",
             raiz_projeto
             / "app"
             / "assets"
             / "sistemas"
-            / nome_arquivo
         )
 
-        for caminho in candidatos:
-            if not caminho.exists():
+        nome = Path(
+            nome_arquivo
+        )
+        nome_claro = (
+            f"{nome.stem}_light"
+            f"{nome.suffix}"
+        )
+        nome_escuro = (
+            f"{nome.stem}_dark"
+            f"{nome.suffix}"
+        )
+
+        for pasta in caminhos_base:
+            caminho_original = (
+                pasta
+                / nome_arquivo
+            )
+            caminho_claro = (
+                pasta
+                / nome_claro
+            )
+            caminho_escuro = (
+                pasta
+                / nome_escuro
+            )
+
+            if not caminho_original.exists():
                 continue
 
             try:
-                with Image.open(caminho) as arquivo:
-                    imagem_pil = arquivo.convert(
+                with Image.open(
+                    caminho_original
+                ) as arquivo:
+                    imagem_original = arquivo.convert(
                         "RGBA"
                     )
 
+                if caminho_claro.exists():
+                    with Image.open(
+                        caminho_claro
+                    ) as arquivo:
+                        imagem_clara = arquivo.convert(
+                            "RGBA"
+                        )
+                else:
+                    imagem_clara = imagem_original.copy()
+
+                if caminho_escuro.exists():
+                    with Image.open(
+                        caminho_escuro
+                    ) as arquivo:
+                        imagem_escura = arquivo.convert(
+                            "RGBA"
+                        )
+                else:
+                    imagem_escura = imagem_original.copy()
+
                 imagem = ctk.CTkImage(
-                    light_image=imagem_pil,
-                    dark_image=imagem_pil,
+                    light_image=imagem_clara,
+                    dark_image=imagem_escura,
                     size=(30, 30)
                 )
 
@@ -877,6 +923,7 @@ class InicioPage(ctk.CTkScrollableFrame):
                 ] = imagem
 
                 return imagem
+
             except (
                 OSError,
                 ValueError
@@ -884,6 +931,7 @@ class InicioPage(ctk.CTkScrollableFrame):
                 continue
 
         return None
+
 
     # ------------------------------------------------------------------
     # Atualização

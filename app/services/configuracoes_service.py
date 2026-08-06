@@ -16,7 +16,7 @@ class ConfiguracoesService:
     cada conta do Windows tenha suas próprias preferências.
     """
 
-    VERSAO_CONFIGURACOES = 6
+    VERSAO_CONFIGURACOES = 7
 
     PAGINAS_VALIDAS = {
         "inicio",
@@ -36,6 +36,12 @@ class ConfiguracoesService:
         100,
         110,
         125
+    }
+
+    TEMAS_INTERFACE_VALIDOS = {
+        "escuro",
+        "claro",
+        "sistema"
     }
 
     INTERVALOS_EXPORTACAO_VALIDOS = {
@@ -125,6 +131,7 @@ class ConfiguracoesService:
                 "abrir_maximizado": False
             },
             "aparencia": {
+                "tema": "escuro",
                 "escala_percentual": 100
             },
             "dashboard": {
@@ -748,6 +755,16 @@ class ConfiguracoesService:
             60
         )
 
+        tema_interface = str(
+            aparencia.get(
+                "tema",
+                "escuro"
+            )
+        ).strip().casefold()
+
+        if tema_interface not in self.TEMAS_INTERFACE_VALIDOS:
+            tema_interface = "escuro"
+
         escala_percentual = self._inteiro_valido(
             aparencia.get(
                 "escala_percentual"
@@ -786,6 +803,7 @@ class ConfiguracoesService:
                 )
             },
             "aparencia": {
+                "tema": tema_interface,
                 "escala_percentual": escala_percentual
             },
             "dashboard": {

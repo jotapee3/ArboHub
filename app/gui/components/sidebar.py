@@ -79,54 +79,23 @@ class Sidebar(ctk.CTkFrame):
         container_icone.pack(side="left")
         container_icone.pack_propagate(False)
 
-        caminho_icone = (
+        pasta_assets = (
             Path(__file__).resolve().parent.parent
             / "assets"
-            / "arbohub_icon.png"
         )
 
-        imagem_original = Image.open(
-            caminho_icone
-        ).convert("RGBA")
-
-        # Localiza o conteúdo real da imagem,
-        # desconsiderando margens transparentes.
-        caixa_conteudo = imagem_original.getchannel(
-            "A"
-        ).getbbox()
-
-        if caixa_conteudo is not None:
-            imagem_original = imagem_original.crop(
-                caixa_conteudo
-            )
-
-        # Cria uma área quadrada sem deformar o ícone.
-        largura, altura = imagem_original.size
-        tamanho_quadrado = max(largura, altura)
-
-        imagem_quadrada = Image.new(
-            mode="RGBA",
-            size=(tamanho_quadrado, tamanho_quadrado),
-            color=(0, 0, 0, 0)
+        imagem_clara = self._preparar_logo(
+            pasta_assets
+            / "arbohub_icon_light.png"
         )
-
-        posicao_x = (
-            tamanho_quadrado - largura
-        ) // 2
-
-        posicao_y = (
-            tamanho_quadrado - altura
-        ) // 2
-
-        imagem_quadrada.paste(
-            imagem_original,
-            (posicao_x, posicao_y),
-            imagem_original
+        imagem_escura = self._preparar_logo(
+            pasta_assets
+            / "arbohub_icon_dark.png"
         )
 
         self.imagem_logo = ctk.CTkImage(
-            light_image=imagem_quadrada,
-            dark_image=imagem_quadrada,
+            light_image=imagem_clara,
+            dark_image=imagem_escura,
             size=(
                 self.TAMANHO_ICONE,
                 self.TAMANHO_ICONE
@@ -188,6 +157,53 @@ class Sidebar(ctk.CTkFrame):
             fill="x",
             pady=(20, 0)
         )
+
+    def _preparar_logo(
+        self,
+        caminho: Path
+    ) -> Image.Image:
+        """
+        Recorta margens transparentes e mantém a proporção do ícone.
+        """
+
+        imagem_original = Image.open(
+            caminho
+        ).convert("RGBA")
+
+        caixa_conteudo = imagem_original.getchannel(
+            "A"
+        ).getbbox()
+
+        if caixa_conteudo is not None:
+            imagem_original = imagem_original.crop(
+                caixa_conteudo
+            )
+
+        largura, altura = imagem_original.size
+        tamanho_quadrado = max(
+            largura,
+            altura
+        )
+
+        imagem_quadrada = Image.new(
+            mode="RGBA",
+            size=(
+                tamanho_quadrado,
+                tamanho_quadrado
+            ),
+            color=(0, 0, 0, 0)
+        )
+
+        imagem_quadrada.paste(
+            imagem_original,
+            (
+                (tamanho_quadrado - largura) // 2,
+                (tamanho_quadrado - altura) // 2
+            ),
+            imagem_original
+        )
+
+        return imagem_quadrada
 
     def criar_menu(self):
         self.botao_inicio = self.criar_botao_menu(

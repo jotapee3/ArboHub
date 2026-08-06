@@ -26,13 +26,32 @@ class MainWindow(ctk.CTk):
 
         self.title("ArboHub")
 
-        caminho_icone = (
+        pasta_assets = (
             Path(__file__).resolve().parent.parent
             / "assets"
-            / "arbohub.ico"
+        )
+        nome_icone = (
+            "arbohub_light.ico"
+            if Colors.TEMA_ATUAL == "claro"
+            else "arbohub_dark.ico"
+        )
+        caminho_icone = (
+            pasta_assets
+            / nome_icone
         )
 
-        self.iconbitmap(caminho_icone)
+        if not caminho_icone.exists():
+            caminho_icone = (
+                pasta_assets
+                / "arbohub.ico"
+            )
+
+        try:
+            self.iconbitmap(
+                caminho_icone
+            )
+        except Exception:
+            pass
 
         self.geometry("1360x840")
         self.minsize(900, 550)

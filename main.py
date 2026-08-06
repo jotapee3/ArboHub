@@ -1,23 +1,38 @@
 import customtkinter as ctk
 
-from app.gui.windows.main_window import MainWindow
 from app.services.configuracoes_service import (
     ConfiguracoesService
 )
 from app.services.escala_interface_service import (
     EscalaInterfaceService
 )
+from app.services.tema_interface_service import (
+    TemaInterfaceService
+)
 
 
-def aplicar_escala_interface():
+def preparar_interface():
     """
-    Aplica a escala antes que qualquer janela seja criada.
+    Aplica tema e escala antes que qualquer página seja importada.
+
+    Isso garante que cores avaliadas durante a importação já usem a
+    paleta correta e evita componentes misturados entre temas.
     """
+
+    configuracoes = (
+        ConfiguracoesService().carregar()
+    )
 
     try:
-        configuracoes = (
-            ConfiguracoesService().carregar()
+        TemaInterfaceService().aplicar_das_configuracoes(
+            configuracoes
         )
+    except Exception:
+        TemaInterfaceService().aplicar(
+            "escuro"
+        )
+
+    try:
         EscalaInterfaceService().aplicar_das_configuracoes(
             configuracoes
         )
@@ -27,8 +42,10 @@ def aplicar_escala_interface():
 
 
 def main():
-    ctk.set_appearance_mode("dark")
-    aplicar_escala_interface()
+    preparar_interface()
+
+    # A janela e as páginas são importadas somente depois da paleta.
+    from app.gui.windows.main_window import MainWindow
 
     MainWindow()
 

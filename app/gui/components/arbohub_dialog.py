@@ -44,12 +44,12 @@ class ArboHubDialog(ctk.CTkToplevel):
         "aviso": {
             "icone": "!",
             "rotulo": "ATENÇÃO",
-            "cor": "#D19A66"
+            "cor": Colors.WARNING
         },
         "erro": {
             "icone": "×",
             "rotulo": "NÃO FOI POSSÍVEL CONCLUIR",
-            "cor": "#E06C75"
+            "cor": Colors.ERROR
         },
         "confirmacao": {
             "icone": "?",
@@ -349,6 +349,22 @@ class ArboHubDialog(ctk.CTkToplevel):
                 padx=(0, 10)
             )
 
+        cor_botao = (
+            self.configuracao["cor"]
+            if self.tipo in {
+                "sucesso",
+                "aviso",
+                "erro"
+            }
+            else Colors.PRIMARY
+        )
+
+        cores_hover = {
+            "sucesso": Colors.SUCCESS_HOVER,
+            "aviso": Colors.WARNING_HOVER,
+            "erro": Colors.ERROR_HOVER
+        }
+
         ctk.CTkButton(
             botoes,
             text=self.texto_confirmar,
@@ -356,13 +372,12 @@ class ArboHubDialog(ctk.CTkToplevel):
             width=155,
             height=38,
             corner_radius=7,
-            fg_color=(
-                self.configuracao["cor"]
-                if self.tipo in {"sucesso", "erro"}
-                else Colors.PRIMARY
+            fg_color=cor_botao,
+            hover_color=cores_hover.get(
+                self.tipo,
+                Colors.PRIMARY_HOVER
             ),
-            hover_color=Colors.BUTTON_HOVER,
-            text_color=Colors.TEXT_PRIMARY,
+            text_color=Colors.TEXT_ON_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=12,

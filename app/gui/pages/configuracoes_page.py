@@ -59,6 +59,17 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         for chave, valor in INTERVALOS.items()
     }
 
+    TEMAS_INTERFACE = {
+        "Escuro": "escuro",
+        "Claro": "claro",
+        "Seguir o Windows": "sistema"
+    }
+
+    TEMAS_INTERFACE_INVERSOS = {
+        valor: chave
+        for chave, valor in TEMAS_INTERFACE.items()
+    }
+
     ESCALAS_INTERFACE = {
         "90% — compacta": 90,
         "100% — recomendada": 100,
@@ -225,6 +236,17 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             value=geral[
                 "abrir_maximizado"
             ]
+        )
+        self.tema_interface_var = ctk.StringVar(
+            value=self.TEMAS_INTERFACE_INVERSOS.get(
+                str(
+                    aparencia.get(
+                        "tema",
+                        "escuro"
+                    )
+                ),
+                "Escuro"
+            )
         )
         self.escala_interface_var = ctk.StringVar(
             value=self.ESCALAS_INTERFACE_INVERSAS.get(
@@ -454,7 +476,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             corner_radius=7,
             fg_color=Colors.PRIMARY,
             hover_color=Colors.PRIMARY_HOVER,
-            text_color=Colors.TEXT_PRIMARY,
+            text_color=Colors.TEXT_ON_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=12,
@@ -631,8 +653,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             linha=3,
             titulo="Aparência",
             descricao=(
-                "Ajuste o tamanho dos textos e controles sem mudar "
-                "a identidade visual do ArboHub."
+                "Escolha o tema e ajuste o tamanho dos textos e "
+                "controles sem perder a identidade visual do ArboHub."
             )
         )
 
@@ -657,6 +679,21 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=grade,
             linha=0,
             coluna=0,
+            titulo="Tema da interface",
+            descricao=(
+                "Use o tema escuro, o claro ou acompanhe a "
+                "preferência de aplicativos do Windows."
+            ),
+            variavel=self.tema_interface_var,
+            valores=list(
+                self.TEMAS_INTERFACE.keys()
+            )
+        )
+
+        self._criar_opcao_menu(
+            master=grade,
+            linha=0,
+            coluna=1,
             titulo="Escala da interface",
             descricao=(
                 "Aumenta ou reduz textos, botões, campos e "
@@ -666,35 +703,6 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             valores=list(
                 self.ESCALAS_INTERFACE.keys()
             )
-        )
-
-        card_reinicio = self._criar_card_opcao(
-            master=grade,
-            linha=0,
-            coluna=1,
-            titulo="Aplicação segura",
-            descricao=(
-                "A escala é aplicada integralmente na próxima "
-                "abertura para evitar componentes com tamanhos mistos."
-            )
-        )
-
-        ctk.CTkLabel(
-            card_reinicio,
-            text="↻ Reinicie o ArboHub após salvar",
-            font=ctk.CTkFont(
-                family="Segoe UI",
-                size=11,
-                weight="bold"
-            ),
-            text_color=Colors.INFO,
-            anchor="w"
-        ).grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            padx=14,
-            pady=(10, 16)
         )
 
         aviso = ctk.CTkFrame(
@@ -716,10 +724,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             aviso,
-            text="i",
+            text="↻",
             width=32,
             font=ctk.CTkFont(
-                family="Segoe UI",
+                family="Segoe UI Symbol",
                 size=15,
                 weight="bold"
             ),
@@ -734,9 +742,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ctk.CTkLabel(
             aviso,
             text=(
-                "100% preserva o tamanho atual. 90% oferece mais "
-                "espaço; 110% e 125% melhoram a leitura. As páginas "
-                "roláveis continuam disponíveis nas escalas maiores."
+                "Tema e escala são aplicados integralmente na próxima "
+                "abertura. No modo “Seguir o Windows”, o ArboHub "
+                "consulta o tema do sistema sempre que for iniciado."
             ),
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -753,6 +761,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             padx=(0, 12),
             pady=12
         )
+
 
     def _criar_secao_login_sinan(self):
         painel = self._criar_painel(
@@ -859,7 +868,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             onvalue=True,
             offvalue=False,
             progress_color=Colors.PRIMARY,
-            button_color=Colors.TEXT_PRIMARY,
+            button_color=Colors.CONTROL_KNOB,
             button_hover_color=Colors.TEXT_SECONDARY,
             text_color=Colors.TEXT_SECONDARY,
             font=ctk.CTkFont(
@@ -1035,7 +1044,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             corner_radius=6,
             fg_color=Colors.PRIMARY,
             hover_color=Colors.PRIMARY_HOVER,
-            text_color=Colors.TEXT_PRIMARY,
+            text_color=Colors.TEXT_ON_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=11,
@@ -1774,7 +1783,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 onvalue=True,
                 offvalue=False,
                 progress_color=Colors.PRIMARY,
-                button_color=Colors.TEXT_PRIMARY,
+                button_color=Colors.CONTROL_KNOB,
                 button_hover_color=Colors.TEXT_SECONDARY,
                 text_color=Colors.TEXT_SECONDARY,
                 font=ctk.CTkFont(
@@ -2179,7 +2188,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 else Colors.BUTTON
             ),
             hover_color=(
-                "#B7811C"
+                Colors.WARNING_HOVER
                 if destaque
                 else Colors.BUTTON_HOVER
             ),
@@ -2954,7 +2963,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             corner_radius=7,
             fg_color=Colors.PRIMARY,
             hover_color=Colors.PRIMARY_HOVER,
-            text_color=Colors.TEXT_PRIMARY,
+            text_color=Colors.TEXT_ON_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=12,
@@ -3165,7 +3174,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             onvalue=True,
             offvalue=False,
             progress_color=Colors.PRIMARY,
-            button_color=Colors.TEXT_PRIMARY,
+            button_color=Colors.CONTROL_KNOB,
             button_hover_color=Colors.TEXT_SECONDARY,
             text_color=Colors.TEXT_SECONDARY,
             font=ctk.CTkFont(
@@ -3182,17 +3191,27 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
 
     def salvar_configuracoes(self):
+        aparencia_anterior = self.configuracoes.get(
+            "aparencia",
+            {}
+        )
         escala_anterior = int(
-            self.configuracoes.get(
-                "aparencia",
-                {}
-            ).get(
+            aparencia_anterior.get(
                 "escala_percentual",
                 100
             )
         )
+        tema_anterior = str(
+            aparencia_anterior.get(
+                "tema",
+                "escuro"
+            )
+        )
         escala_percentual = self.ESCALAS_INTERFACE[
             self.escala_interface_var.get()
+        ]
+        tema_interface = self.TEMAS_INTERFACE[
+            self.tema_interface_var.get()
         ]
 
         try:
@@ -3232,7 +3251,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             return
 
         configuracoes = {
-            "versao": 6,
+            "versao": 7,
             "geral": {
                 "pagina_inicial": self.PAGINAS[
                     self.pagina_inicial_var.get()
@@ -3242,6 +3261,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 )
             },
             "aparencia": {
+                "tema": tema_interface,
                 "escala_percentual": escala_percentual
             },
             "dashboard": {
@@ -3293,14 +3313,34 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             escala_percentual
             != escala_anterior
         )
-
-        mensagem_escala = (
-            "\n\nA escala da interface foi alterada para "
-            f"{escala_percentual}%. Feche e abra o ArboHub para "
-            "aplicar o novo tamanho em todas as telas."
-            if escala_alterada
-            else ""
+        tema_alterado = (
+            tema_interface
+            != tema_anterior
         )
+
+        alteracoes_aparencia = []
+
+        if tema_alterado:
+            alteracoes_aparencia.append(
+                "tema “"
+                + self.tema_interface_var.get()
+                + "”"
+            )
+
+        if escala_alterada:
+            alteracoes_aparencia.append(
+                f"escala de {escala_percentual}%"
+            )
+
+        mensagem_aparencia = ""
+
+        if alteracoes_aparencia:
+            mensagem_aparencia = (
+                "\n\nA aparência foi alterada: "
+                + " e ".join(alteracoes_aparencia)
+                + ". Feche e abra o ArboHub para aplicar a mudança "
+                "em todas as telas, diálogos e imagens."
+            )
 
         mostrar_dialogo_arbohub(
             master=self.winfo_toplevel(),
@@ -3313,11 +3353,12 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "serão usados nas próximas rotinas. A página inicial, "
                 "o estado da janela e o dashboard continuam seguindo "
                 "as preferências gerais."
-                + mensagem_escala
+                + mensagem_aparencia
             ),
             tipo="sucesso",
             texto_botao="Entendi"
         )
+
 
 
     def restaurar_padroes(self):
@@ -3325,8 +3366,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=self.winfo_toplevel(),
             titulo="Restaurar configurações?",
             mensagem=(
-                "As preferências gerais, a escala da interface, o "
-                "login automático, os sons, os contatos de supervisão, "
+                "As preferências gerais, o tema, a escala da interface, "
+                "o login automático, os sons, os contatos de supervisão, "
                 "os caminhos "
                 "operacionais e os tempos da exportação voltarão aos "
                 "valores padrão.\n\n"
@@ -3385,6 +3426,17 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
         self.abrir_maximizado_var.set(
             geral["abrir_maximizado"]
+        )
+        self.tema_interface_var.set(
+            self.TEMAS_INTERFACE_INVERSOS.get(
+                str(
+                    aparencia.get(
+                        "tema",
+                        "escuro"
+                    )
+                ),
+                "Escuro"
+            )
         )
         self.escala_interface_var.set(
             self.ESCALAS_INTERFACE_INVERSAS.get(
@@ -3552,12 +3604,14 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             master=self.winfo_toplevel(),
             titulo="Padrões restaurados",
             mensagem=(
-                "As configurações padrão foram restauradas. A escala "
-                "voltou para 100%, o login automático foi desativado, "
+                "As configurações padrão foram restauradas. O tema "
+                "voltou para Escuro, a escala voltou para 100% e o "
+                "login automático foi desativado, "
                 "os contatos de supervisão foram limpos e os sons "
                 "voltaram ao padrão. A credencial segura continua "
                 "preservada no Windows.\n\n"
-                "Feche e abra o ArboHub para aplicar a escala de 100%. "
+                "Feche e abra o ArboHub para aplicar o tema Escuro "
+                "e a escala de 100%. "
                 "Teste as quatro pastas operacionais antes de iniciar "
                 "uma nova rotina de Bases."
             ),
@@ -3891,8 +3945,8 @@ class ConfirmacaoResetBasesDialog(ctk.CTkToplevel):
             height=36,
             corner_radius=7,
             fg_color=Colors.WARNING,
-            hover_color="#B7811C",
-            text_color=Colors.TEXT_PRIMARY,
+            hover_color=Colors.WARNING_HOVER,
+            text_color=Colors.TEXT_ON_PRIMARY,
             state="disabled",
             font=ctk.CTkFont(
                 family="Segoe UI",

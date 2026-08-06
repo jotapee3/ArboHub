@@ -372,8 +372,8 @@ class ConfirmacaoConferenciaDialog(ctk.CTkToplevel):
             height=40,
             corner_radius=7,
             fg_color=Colors.PRIMARY,
-            hover_color=Colors.BUTTON_HOVER,
-            text_color=Colors.TEXT_PRIMARY,
+            hover_color=Colors.PRIMARY_HOVER,
+            text_color=Colors.TEXT_ON_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=13,
@@ -448,7 +448,7 @@ class ConfirmacaoConferenciaDialog(ctk.CTkToplevel):
             border_width_unchecked=2,
             border_width_checked=5,
             fg_color=Colors.PRIMARY,
-            hover_color=Colors.BUTTON_HOVER,
+            hover_color=Colors.PRIMARY_HOVER,
             border_color=Colors.TEXT_MUTED,
             text_color=Colors.TEXT_PRIMARY,
             font=ctk.CTkFont(

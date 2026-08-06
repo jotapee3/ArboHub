@@ -275,15 +275,15 @@ class SinanPage(ctk.CTkFrame):
             border_width=0,
             border_color=Colors.BACKGROUND,
             segmented_button_fg_color=Colors.BACKGROUND,
-            segmented_button_selected_color=Colors.PRIMARY,
+            segmented_button_selected_color=Colors.TAB_SELECTED,
             segmented_button_selected_hover_color=(
-                Colors.BUTTON_HOVER
+                Colors.TAB_SELECTED_HOVER
             ),
             segmented_button_unselected_color=Colors.BUTTON,
             segmented_button_unselected_hover_color=(
                 Colors.BUTTON_HOVER
             ),
-            text_color=Colors.TEXT_PRIMARY
+            text_color=Colors.TAB_TEXT
         )
         self.abas_sinan.grid(
             row=1,
@@ -730,8 +730,8 @@ class SinanPage(ctk.CTkFrame):
             height=38,
             corner_radius=7,
             fg_color=Colors.PRIMARY,
-            hover_color=Colors.BUTTON_HOVER,
-            text_color=Colors.TEXT_PRIMARY,
+            hover_color=Colors.PRIMARY_HOVER,
+            text_color=Colors.TEXT_ON_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=13,
@@ -2785,8 +2785,8 @@ class SinanPage(ctk.CTkFrame):
             height=38,
             corner_radius=7,
             fg_color=Colors.PRIMARY,
-            hover_color=Colors.BUTTON_HOVER,
-            text_color=Colors.TEXT_PRIMARY,
+            hover_color=Colors.PRIMARY_HOVER,
+            text_color=Colors.TEXT_ON_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=13,
@@ -3680,7 +3680,7 @@ class SinanPage(ctk.CTkFrame):
             ),
             "erro": (
                 "× Falha na atualização",
-                "#E06C75"
+                Colors.ERROR
             ),
             "cancelado": (
                 "○ Atualização cancelada",
@@ -3750,7 +3750,7 @@ class SinanPage(ctk.CTkFrame):
         elif estado_solicitacoes == "erro":
             self.label_solicitacoes_bases.configure(
                 text="× Falha nas solicitações",
-                text_color="#E06C75"
+                text_color=Colors.ERROR
             )
         else:
             self.label_solicitacoes_bases.configure(
@@ -3787,7 +3787,7 @@ class SinanPage(ctk.CTkFrame):
         ):
             self.label_arquivos_bases.configure(
                 text="× Atualização incompleta",
-                text_color="#E06C75"
+                text_color=Colors.ERROR
             )
         elif any(
             estado == "executando"
@@ -6205,7 +6205,7 @@ class SinanPage(ctk.CTkFrame):
                     "Não foi possível verificar a situação: "
                     f"{erro}"
                 ),
-                text_color="#E06C75"
+                text_color=Colors.ERROR
             )
             return
 
