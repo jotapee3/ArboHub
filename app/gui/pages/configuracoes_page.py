@@ -149,6 +149,45 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
     )
 
+    CATEGORIAS = (
+        (
+            "aparencia",
+            "🎨",
+            "Aparência",
+            "Tema, escala e comportamento ao iniciar."
+        ),
+        (
+            "dados",
+            "🗂️",
+            "Dados e arquivos",
+            "Pastas usadas pelos fluxos operacionais."
+        ),
+        (
+            "automacao",
+            "⚡",
+            "Automação",
+            "Dashboard e tempos das rotinas automáticas."
+        ),
+        (
+            "acessos",
+            "🔐",
+            "Acessos",
+            "Login automático e credencial do SINAN."
+        ),
+        (
+            "notificacoes",
+            "🔔",
+            "Notificações",
+            "Sons locais e contatos de supervisão."
+        ),
+        (
+            "manutencao",
+            "🛠️",
+            "Manutenção",
+            "Testes, reset e informações técnicas."
+        )
+    )
+
     def __init__(
         self,
         master,
@@ -185,17 +224,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
 
         self._criar_variaveis()
-        self._criar_cabecalho()
-        self._criar_secao_geral()
-        self._criar_secao_dashboard()
-        self._criar_secao_escala_interface()
-        self._criar_secao_login_sinan()
-        self._criar_secao_caminhos_operacionais()
-        self._criar_secao_exportacao_parcial()
-        self._criar_secao_notificacoes_supervisao()
-        self._criar_secao_manutencao()
-        self._criar_secao_sobre()
-        self._criar_rodape()
+        self._categoria_atual = "inicio"
+        self._mostrar_inicio_configuracoes()
 
     def _criar_variaveis(self):
         geral = self.configuracoes[
@@ -414,8 +444,86 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             )
         )
 
+    def _limpar_conteudo_configuracoes(self):
+        for widget in self.winfo_children():
+            widget.destroy()
 
-    def _criar_cabecalho(self):
+        # Referências para widgets que existem apenas dentro de
+        # determinadas categorias não podem sobreviver à navegação.
+        self.label_status_credencial = None
+        self.entry_senha_sinan = None
+        self.label_status_som = None
+        self.status_caminhos.clear()
+
+    def _rolar_para_topo(self):
+        try:
+            self._parent_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
+
+    def _mostrar_inicio_configuracoes(self):
+        self._limpar_conteudo_configuracoes()
+        self._categoria_atual = "inicio"
+
+        self._criar_cabecalho_inicio()
+        self._criar_grade_categorias()
+        self._criar_rodape_inicio()
+        self.after_idle(self._rolar_para_topo)
+
+    def _mostrar_categoria(self, categoria: str):
+        categorias_validas = {
+            item[0]
+            for item in self.CATEGORIAS
+        }
+
+        if categoria not in categorias_validas:
+            return
+
+        self._limpar_conteudo_configuracoes()
+        self._categoria_atual = categoria
+        self._criar_cabecalho_categoria(categoria)
+
+        secoes = {
+            "aparencia": (
+                self._criar_secao_geral,
+                self._criar_secao_escala_interface
+            ),
+            "dados": (
+                self._criar_secao_caminhos_operacionais,
+            ),
+            "automacao": (
+                self._criar_secao_dashboard,
+                self._criar_secao_exportacao_parcial
+            ),
+            "acessos": (
+                self._criar_secao_login_sinan,
+            ),
+            "notificacoes": (
+                self._criar_secao_notificacoes_supervisao,
+            ),
+            "manutencao": (
+                self._criar_secao_manutencao,
+                self._criar_secao_sobre
+            )
+        }
+
+        for criar_secao in secoes[categoria]:
+            criar_secao()
+
+        self._criar_rodape()
+        self.after_idle(self._rolar_para_topo)
+
+    def _obter_dados_categoria(
+        self,
+        categoria: str
+    ) -> tuple[str, str, str]:
+        for chave, icone, titulo, descricao in self.CATEGORIAS:
+            if chave == categoria:
+                return icone, titulo, descricao
+
+        return "⚙️", "Configurações", "Preferências do ArboHub."
+
+    def _criar_cabecalho_inicio(self):
         cabecalho = ctk.CTkFrame(
             self,
             fg_color="transparent"
@@ -451,8 +559,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ctk.CTkLabel(
             cabecalho,
             text=(
-                "Personalize preferências gerais sem alterar "
-                "as rotinas operacionais."
+                "Gerencie as preferências e o funcionamento do "
+                "ArboHub."
             ),
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -484,6 +592,327 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             )
         ).grid(
             row=0,
+            column=1,
+            rowspan=2,
+            sticky="e"
+        )
+
+    def _criar_grade_categorias(self):
+        grade = ctk.CTkFrame(
+            self,
+            fg_color="transparent"
+        )
+        grade.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=40,
+            pady=(2, 22)
+        )
+        grade.grid_columnconfigure(
+            (0, 1, 2),
+            weight=1,
+            uniform="categorias_configuracoes"
+        )
+
+        for indice, dados in enumerate(self.CATEGORIAS):
+            chave, icone, titulo, descricao = dados
+            linha = indice // 3
+            coluna = indice % 3
+
+            self._criar_card_categoria(
+                master=grade,
+                linha=linha,
+                coluna=coluna,
+                chave=chave,
+                icone=icone,
+                titulo=titulo,
+                descricao=descricao
+            )
+
+    def _criar_card_categoria(
+        self,
+        master,
+        linha: int,
+        coluna: int,
+        chave: str,
+        icone: str,
+        titulo: str,
+        descricao: str
+    ):
+        card = ctk.CTkFrame(
+            master,
+            height=128,
+            fg_color=Colors.SURFACE,
+            corner_radius=9,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        card.grid(
+            row=linha,
+            column=coluna,
+            sticky="nsew",
+            padx=(
+                (0, 7)
+                if coluna == 0
+                else (
+                    (7, 0)
+                    if coluna == 2
+                    else 7
+                )
+            ),
+            pady=7
+        )
+        card.grid_propagate(False)
+        card.grid_columnconfigure(1, weight=1)
+
+        label_icone = ctk.CTkLabel(
+            card,
+            text=icone,
+            width=40,
+            font=ctk.CTkFont(
+                family="Segoe UI Emoji",
+                size=22
+            ),
+            text_color=Colors.INFO
+        )
+        label_icone.grid(
+            row=0,
+            column=0,
+            rowspan=2,
+            padx=(16, 10),
+            pady=18
+        )
+
+        label_titulo = ctk.CTkLabel(
+            card,
+            text=titulo,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=14,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        )
+        label_titulo.grid(
+            row=0,
+            column=1,
+            sticky="sew",
+            pady=(23, 2)
+        )
+
+        label_descricao = ctk.CTkLabel(
+            card,
+            text=descricao,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="nw",
+            justify="left",
+            wraplength=220
+        )
+        label_descricao.grid(
+            row=1,
+            column=1,
+            sticky="new",
+            pady=(2, 20)
+        )
+
+        label_seta = ctk.CTkLabel(
+            card,
+            text="›",
+            width=20,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=20
+            ),
+            text_color=Colors.TEXT_MUTED
+        )
+        label_seta.grid(
+            row=0,
+            column=2,
+            rowspan=2,
+            padx=(8, 14)
+        )
+
+        componentes = (
+            card,
+            label_icone,
+            label_titulo,
+            label_descricao,
+            label_seta
+        )
+
+        for componente in componentes:
+            componente.bind(
+                "<Button-1>",
+                lambda _evento, item=chave:
+                    self._mostrar_categoria(item)
+            )
+            componente.bind(
+                "<Enter>",
+                lambda _evento, alvo=card:
+                    alvo.configure(
+                        fg_color=Colors.SURFACE_HOVER
+                    )
+            )
+            componente.bind(
+                "<Leave>",
+                lambda _evento, alvo=card:
+                    alvo.configure(
+                        fg_color=Colors.SURFACE
+                    )
+            )
+
+    def _criar_rodape_inicio(self):
+        rodape = ctk.CTkFrame(
+            self,
+            fg_color="transparent"
+        )
+        rodape.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=40,
+            pady=(0, 30)
+        )
+        rodape.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            rodape,
+            text=(
+                "ArboHub v0.6  •  Configurações locais desta "
+                "conta do Windows"
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w"
+        )
+
+        ctk.CTkButton(
+            rodape,
+            text="Restaurar padrões",
+            command=self.restaurar_padroes,
+            width=145,
+            height=34,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            border_width=1,
+            border_color=Colors.BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            )
+        ).grid(
+            row=0,
+            column=1,
+            sticky="e"
+        )
+
+    def _criar_cabecalho_categoria(self, categoria: str):
+        icone, titulo, descricao = (
+            self._obter_dados_categoria(categoria)
+        )
+
+        cabecalho = ctk.CTkFrame(
+            self,
+            fg_color="transparent"
+        )
+        cabecalho.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=40,
+            pady=(24, 18)
+        )
+        cabecalho.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkButton(
+            cabecalho,
+            text="←  Configurações",
+            command=self._mostrar_inicio_configuracoes,
+            width=132,
+            height=30,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            border_width=0,
+            text_color=Colors.INFO,
+            anchor="w",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            )
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(0, 12)
+        )
+
+        ctk.CTkLabel(
+            cabecalho,
+            text=f"{icone}  {titulo}",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=26,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=1,
+            column=0,
+            sticky="ew"
+        )
+
+        ctk.CTkLabel(
+            cabecalho,
+            text=descricao,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12
+            ),
+            text_color=Colors.TEXT_SECONDARY,
+            anchor="w"
+        ).grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            pady=(5, 0)
+        )
+
+        ctk.CTkButton(
+            cabecalho,
+            text="Salvar alterações",
+            command=self.salvar_configuracoes,
+            width=155,
+            height=38,
+            corner_radius=7,
+            fg_color=Colors.PRIMARY,
+            hover_color=Colors.PRIMARY_HOVER,
+            text_color=Colors.TEXT_ON_PRIMARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold"
+            )
+        ).grid(
+            row=1,
             column=1,
             rowspan=2,
             sticky="e"
@@ -861,22 +1290,32 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             )
         )
 
-        ctk.CTkSwitch(
+        switch_login = ctk.CTkSwitch(
             card_login,
             text="Ativado",
             variable=self.login_automatico_var,
             onvalue=True,
             offvalue=False,
+            switch_width=40,
+            switch_height=20,
+            corner_radius=10,
+            border_width=1,
             progress_color=Colors.PRIMARY,
             button_color=Colors.CONTROL_KNOB,
-            button_hover_color=Colors.TEXT_SECONDARY,
-            text_color=Colors.TEXT_SECONDARY,
+            button_hover_color=Colors.CONTROL_KNOB,
+            text_color=Colors.TEXT_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=11,
                 weight="bold"
             )
-        ).grid(
+        )
+        self._preparar_visual_switch(
+            switch_login,
+            self.login_automatico_var,
+            exibir_estado=True
+        )
+        switch_login.grid(
             row=2,
             column=0,
             sticky="w",
@@ -1776,22 +2215,31 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             opcoes_som,
             start=2
         ):
-            ctk.CTkSwitch(
+            switch_som = ctk.CTkSwitch(
                 sons,
                 text=texto,
                 variable=variavel,
                 onvalue=True,
                 offvalue=False,
+                switch_width=40,
+                switch_height=20,
+                corner_radius=10,
+                border_width=1,
                 progress_color=Colors.PRIMARY,
                 button_color=Colors.CONTROL_KNOB,
-                button_hover_color=Colors.TEXT_SECONDARY,
-                text_color=Colors.TEXT_SECONDARY,
+                button_hover_color=Colors.CONTROL_KNOB,
+                text_color=Colors.TEXT_PRIMARY,
                 font=ctk.CTkFont(
                     family="Segoe UI",
                     size=11,
                     weight="bold"
                 )
-            ).grid(
+            )
+            self._preparar_visual_switch(
+                switch_som,
+                variavel
+            )
+            switch_som.grid(
                 row=indice,
                 column=0,
                 sticky="w",
@@ -2832,7 +3280,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         informacoes = (
             (
                 "Aplicativo",
-                "ArboHub v0.5"
+                "ArboHub v0.6"
             ),
             (
                 "Finalidade",
@@ -3167,27 +3615,109 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             descricao
         )
 
-        ctk.CTkSwitch(
+        switch = ctk.CTkSwitch(
             card,
             text="Ativado",
             variable=variavel,
             onvalue=True,
             offvalue=False,
+            switch_width=40,
+            switch_height=20,
+            corner_radius=10,
+            border_width=1,
             progress_color=Colors.PRIMARY,
             button_color=Colors.CONTROL_KNOB,
-            button_hover_color=Colors.TEXT_SECONDARY,
-            text_color=Colors.TEXT_SECONDARY,
+            button_hover_color=Colors.CONTROL_KNOB,
+            text_color=Colors.TEXT_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=11,
                 weight="bold"
             )
-        ).grid(
+        )
+        self._preparar_visual_switch(
+            switch,
+            variavel,
+            exibir_estado=True
+        )
+        switch.grid(
             row=2,
             column=0,
             sticky="w",
             padx=14,
             pady=(10, 16)
+        )
+
+    def _preparar_visual_switch(
+        self,
+        switch,
+        variavel,
+        exibir_estado: bool = False
+    ):
+        """Aplica ao switch o comportamento visual usado pelo Windows."""
+        self._atualizar_visual_switch(
+            switch,
+            variavel,
+            exibir_estado
+        )
+        switch.configure(
+            command=(
+                lambda controle=switch, estado=variavel,
+                mostrar_estado=exibir_estado:
+                    self._atualizar_visual_switch(
+                        controle,
+                        estado,
+                        mostrar_estado
+                    )
+            )
+        )
+
+    def _atualizar_visual_switch(
+        self,
+        switch,
+        variavel,
+        exibir_estado: bool = False
+    ):
+        ativo = bool(variavel.get())
+
+        if exibir_estado:
+            switch.configure(
+                text=(
+                    "Ativado"
+                    if ativo
+                    else "Desativado"
+                )
+            )
+
+        if ativo:
+            switch.configure(
+                fg_color=Colors.PRIMARY,
+                progress_color=Colors.PRIMARY,
+                border_color=Colors.PRIMARY,
+                button_color=Colors.CONTROL_KNOB,
+                button_hover_color=Colors.CONTROL_KNOB,
+                text_color=Colors.TEXT_PRIMARY
+            )
+            return
+
+        if Colors.TEMA_ATUAL == "claro":
+            switch.configure(
+                fg_color=Colors.BUTTON,
+                progress_color=Colors.PRIMARY,
+                border_color=Colors.TEXT_DISABLED,
+                button_color=Colors.TEXT_SECONDARY,
+                button_hover_color=Colors.TEXT_SECONDARY,
+                text_color=Colors.TEXT_PRIMARY
+            )
+            return
+
+        switch.configure(
+            fg_color=Colors.BUTTON,
+            progress_color=Colors.PRIMARY,
+            border_color=Colors.BORDER,
+            button_color=Colors.CONTROL_KNOB,
+            button_hover_color=Colors.CONTROL_KNOB,
+            text_color=Colors.TEXT_PRIMARY
         )
 
     def salvar_configuracoes(self):
@@ -3867,7 +4397,7 @@ class ConfirmacaoResetBasesDialog(ctk.CTkToplevel):
         )
 
         self.campo_frase = ctk.CTkEntry(
-            conteudo,
+            conteudo,           
             textvariable=self.frase_var,
             height=38,
             corner_radius=7,

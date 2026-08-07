@@ -95,6 +95,7 @@ class MainWindow(ctk.CTk):
 
     def abrir_inicio(self):
         self.content_area.mostrar_pagina(
+            "inicio",
             lambda master: InicioPage(
                 master,
                 comando_sinan=self.abrir_sinan,
@@ -105,21 +106,29 @@ class MainWindow(ctk.CTk):
         self.sidebar.selecionar_inicio()
 
     def abrir_sinan(self):
-        self.content_area.mostrar_pagina(SinanPage)
+        self.content_area.mostrar_pagina(
+            "sinan",
+            SinanPage
+        )
         self.sidebar.selecionar_sinan()
 
     def abrir_gal(self):
-        self.content_area.mostrar_pagina(GalPage)
+        self.content_area.mostrar_pagina(
+            "gal",
+            GalPage
+        )
         self.sidebar.selecionar_gal()
 
     def abrir_historico(self):
         self.content_area.mostrar_pagina(
+            "historico",
             HistoricoPage
         )
         self.sidebar.selecionar_historico()
 
     def abrir_configuracoes(self):
         self.content_area.mostrar_pagina(
+            "configuracoes",
             lambda master: ConfiguracoesPage(
                 master,
                 ao_salvar=self._ao_salvar_configuracoes
