@@ -120,8 +120,14 @@ class AtualizacaoBasesService:
         """
         Inicia a rotina em segundo plano.
 
-        Retorna False quando já existe uma execução em andamento.
+        Retorna False quando já existe uma execução em andamento ou
+        quando a atualização de Bases do dia já foi concluída.
         """
+
+        rotina = self.checkpoint_service.obter_rotina()
+
+        if rotina["atualizacao_bases"]:
+            return False
 
         with self._lock:
             if self._executando:

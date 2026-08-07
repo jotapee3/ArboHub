@@ -5548,13 +5548,21 @@ class SinanPage(ctk.CTkFrame):
             )
             return
 
+        atualizada_hoje = bool(
+            rotina["atualizacao_bases"]
+        )
+
         self.botao_baixar.configure(
             text=(
-                "↻ Executar novamente"
-                if rotina["atualizacao_bases"]
+                "✓ Atualizada hoje"
+                if atualizada_hoje
                 else "▶ Iniciar rotina"
             ),
-            state="normal"
+            state=(
+                "disabled"
+                if atualizada_hoje
+                else "normal"
+            )
         )
         self.botao_cancelar_bases.configure(
             state="disabled"
@@ -6021,6 +6029,16 @@ class SinanPage(ctk.CTkFrame):
             self.atualizacao_bases_service
             .esta_em_execucao()
         ):
+            return
+
+        rotina = self.checkpoint_service.obter_rotina()
+
+        if rotina["atualizacao_bases"]:
+            self._atualizar_controles_bases(rotina)
+            self.label_status_base.configure(
+                text="Bases atualizadas e validadas hoje.",
+                text_color=Colors.SUCCESS
+            )
             return
 
         try:
