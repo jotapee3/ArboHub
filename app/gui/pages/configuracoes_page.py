@@ -25,6 +25,12 @@ from app.services.manutencao_service import (
 from app.services.notificacoes_service import (
     NotificacoesService
 )
+from app.services.suporte_service import (
+    EMAIL_SUPORTE,
+    RESPONSAVEL_SUPORTE,
+    ROTULO_VERSAO_ARBOHUB,
+    SuporteService
+)
 from app.services.usuario_windows_service import (
     UsuarioWindowsService
 )
@@ -230,6 +236,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
         self.notificacoes_service = (
             NotificacoesService()
+        )
+        self.suporte_service = (
+            SuporteService()
         )
         self.usuario_windows_service = (
             UsuarioWindowsService()
@@ -545,6 +554,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             ),
             "manutencao": (
                 self._criar_secao_manutencao,
+                self._criar_secao_ajuda_suporte,
                 self._criar_secao_sobre
             )
         }
@@ -929,7 +939,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ctk.CTkLabel(
             rodape,
             text=(
-                "ArboHub v0.6  •  Configurações locais desta "
+                f"{ROTULO_VERSAO_ARBOHUB}  •  "
+                "Configurações locais desta "
                 "conta do Windows"
             ),
             font=ctk.CTkFont(
@@ -3615,9 +3626,190 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         return exportacao
 
-    def _criar_secao_sobre(self):
+    def _criar_secao_ajuda_suporte(self):
         painel = self._criar_painel(
             linha=9,
+            titulo="Ajuda e suporte",
+            descricao=(
+                "Informe problemas, solicite mudanças ou sugira "
+                "novas implementações para o ArboHub."
+            )
+        )
+
+        contato = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        contato.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 20)
+        )
+        contato.grid_columnconfigure(1, weight=1)
+
+        icone = ctk.CTkFrame(
+            contato,
+            width=48,
+            height=48,
+            corner_radius=9,
+            fg_color=Colors.SURFACE_HOVER,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        icone.grid(
+            row=0,
+            column=0,
+            rowspan=3,
+            padx=(16, 12),
+            pady=(16, 8)
+        )
+        icone.grid_propagate(False)
+
+        ctk.CTkLabel(
+            icone,
+            text="✉",
+            font=ctk.CTkFont(
+                family="Segoe UI Symbol",
+                size=22
+            ),
+            text_color=Colors.INFO
+        ).place(
+            relx=0.5,
+            rely=0.5,
+            anchor="center"
+        )
+
+        ctk.CTkLabel(
+            contato,
+            text=RESPONSAVEL_SUPORTE,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=13,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=1,
+            sticky="sew",
+            padx=(0, 14),
+            pady=(16, 1)
+        )
+
+        ctk.CTkLabel(
+            contato,
+            text="Responsável pelo ArboHub",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w"
+        ).grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(0, 14),
+            pady=1
+        )
+
+        ctk.CTkLabel(
+            contato,
+            text=EMAIL_SUPORTE,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.INFO,
+            anchor="w"
+        ).grid(
+            row=2,
+            column=1,
+            sticky="new",
+            padx=(0, 14),
+            pady=(1, 8)
+        )
+
+        ctk.CTkButton(
+            contato,
+            text="Entrar em contato",
+            command=self.abrir_solicitacao_suporte,
+            width=160,
+            height=36,
+            corner_radius=7,
+            fg_color=Colors.PRIMARY,
+            hover_color=Colors.PRIMARY_HOVER,
+            text_color=Colors.TEXT_ON_PRIMARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            )
+        ).grid(
+            row=0,
+            column=2,
+            rowspan=3,
+            sticky="e",
+            padx=(10, 16),
+            pady=(16, 8)
+        )
+
+        ctk.CTkLabel(
+            contato,
+            text=(
+                "A mensagem será aberta no aplicativo de e-mail "
+                "do Windows com a versão do ArboHub e o usuário "
+                "desta instalação preenchidos automaticamente."
+            ),
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=720
+        ).grid(
+            row=3,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=16,
+            pady=(8, 14)
+        )
+
+    def abrir_solicitacao_suporte(self):
+        try:
+            self.suporte_service.abrir_solicitacao(
+                nome_usuario=(
+                    self.identidade_windows.nome_exibicao
+                ),
+                conta_usuario=(
+                    self.identidade_windows.conta
+                )
+            )
+        except Exception as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Não foi possível abrir o e-mail",
+                mensagem=(
+                    "Abra uma nova mensagem manualmente para:\n"
+                    f"{EMAIL_SUPORTE}\n\n"
+                    f"Detalhe: {erro}"
+                ),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
+
+    def _criar_secao_sobre(self):
+        painel = self._criar_painel(
+            linha=10,
             titulo="Sobre",
             descricao=(
                 "Informações desta instalação do ArboHub."
@@ -3650,7 +3842,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         informacoes = (
             (
                 "Aplicativo",
-                "ArboHub v0.6"
+                ROTULO_VERSAO_ARBOHUB
             ),
             (
                 "Finalidade",
@@ -3738,7 +3930,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             fg_color="transparent"
         )
         rodape.grid(
-            row=10,
+            row=11,
             column=0,
             sticky="ew",
             padx=40,
