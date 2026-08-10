@@ -117,7 +117,10 @@ class SinanPage(ctk.CTkFrame):
         (
             AtualizacaoBasesService.ETAPA_PASTAS_TESTE,
             "Pastas de teste",
-            "Atualizar Teste AB1 e Teste AB2 com backup e SHA-256."
+            (
+                "Atualizar os destinos configurados de Dengue e "
+                "Chikungunya com backup e SHA-256."
+            )
         ),
         (
             AtualizacaoBasesService.ETAPA_BANCOS_ATUAIS,
@@ -218,6 +221,30 @@ class SinanPage(ctk.CTkFrame):
             250,
             self.atualizar_estado_bases
         )
+
+    def recarregar_configuracoes_operacionais(self) -> bool:
+        """
+        Recria o serviço de Bases com os caminhos e nomes salvos.
+
+        Uma execução ou correção pendente continua usando a
+        configuração com que começou para não trocar destinos no
+        meio da rotina.
+        """
+
+        if (
+            self.atualizacao_bases_service.esta_em_execucao()
+            or self.atualizacao_bases_service.obter_pendencia_atual()
+            is not None
+        ):
+            return False
+
+        self.atualizacao_bases_service = (
+            AtualizacaoBasesService(
+                checkpoint_service=self.checkpoint_service
+            )
+        )
+        self.atualizar_estado_bases()
+        return True
 
 
     # ------------------------------------------------------------------
@@ -3141,16 +3168,16 @@ class SinanPage(ctk.CTkFrame):
                 icone="🧪",
                 titulo="Pastas de teste",
                 descricao=(
-                    "DBFs instalados em Teste AB1 e Teste AB2 "
-                    "com backup e validação SHA-256."
+                    "DBFs instalados nos destinos configurados para "
+                    "Dengue e Chikungunya, com backup e SHA-256."
                 ),
                 atalhos=(
                     (
-                        "📂 Teste AB1",
+                        "📂 Dengue (AB1)",
                         "teste_ab1"
                     ),
                     (
-                        "📂 Teste AB2",
+                        "📂 Chikungunya (AB2)",
                         "teste_ab2"
                     )
                 )

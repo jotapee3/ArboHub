@@ -156,7 +156,32 @@ class MainWindow(ctk.CTk):
         self,
         configuracoes
     ):
+        operacional_anterior = self.configuracoes.get(
+            "operacional",
+            {}
+        )
         self.configuracoes = configuracoes
+
+        if (
+            operacional_anterior
+            != configuracoes.get(
+                "operacional",
+                {}
+            )
+        ):
+            pagina_sinan = self.content_area.obter_pagina(
+                "sinan"
+            )
+
+            if (
+                pagina_sinan is not None
+                and hasattr(
+                    pagina_sinan,
+                    "recarregar_configuracoes_operacionais"
+                )
+            ):
+                pagina_sinan.recarregar_configuracoes_operacionais()
+
         self._aplicar_estado_janela()
 
     def _aplicar_estado_janela(self):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+from datetime import date
 from pathlib import Path
 from time import time_ns
 from typing import Any
@@ -16,7 +17,7 @@ class ConfiguracoesService:
     cada conta do Windows tenha suas próprias preferências.
     """
 
-    VERSAO_CONFIGURACOES = 7
+    VERSAO_CONFIGURACOES = 8
 
     PAGINAS_VALIDAS = {
         "inicio",
@@ -85,9 +86,32 @@ class ConfiguracoesService:
 
     ROTULOS_CAMINHOS = {
         "historico_sinan": "Histórico do SINAN",
-        "teste_ab1": "Teste AB1",
-        "teste_ab2": "Teste AB2",
+        "teste_ab1": "Dengue (AB1)",
+        "teste_ab2": "Chikungunya (AB2)",
         "bancos_atuais": "Bancos_Atuais"
+    }
+
+    CHAVES_NOMES_ARQUIVOS_TESTE = (
+        "dengue",
+        "chikungunya"
+    )
+
+    ROTULOS_NOMES_ARQUIVOS_TESTE = {
+        "dengue": "arquivo de Dengue (AB1)",
+        "chikungunya": "arquivo de Chikungunya (AB2)"
+    }
+
+    CARACTERES_INVALIDOS_NOME_ARQUIVO = set(
+        '<>:"/\\|?*'
+    )
+
+    NOMES_RESERVADOS_WINDOWS = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{numero}" for numero in range(1, 10)),
+        *(f"LPT{numero}" for numero in range(1, 10))
     }
 
     def __init__(
@@ -153,6 +177,9 @@ class ConfiguracoesService:
             },
             "operacional": {
                 "caminhos": self.obter_caminhos_padroes(),
+                "nomes_arquivos_teste": (
+                    self.obter_nomes_arquivos_teste_padroes()
+                ),
                 "exportacao": {
                     "intervalo_consulta_segundos": 15,
                     "aviso_inicial_segundos": 60,
@@ -187,6 +214,147 @@ class ConfiguracoesService:
                 / "Bancos_Atuais"
             )
         }
+
+    def obter_nomes_arquivos_teste_padroes(
+        self
+    ) -> dict[str, str]:
+        return {
+            "dengue": "Teste{ano}_AB1.dbf",
+            "chikungunya": "Teste{ano}_AB2.dbf"
+        }
+
+    def validar_nome_arquivo_teste(
+        self,
+        chave: str,
+        modelo: str
+    ) -> str:
+        """
+        Valida um modelo de nome final sem aceitar caminhos.
+
+        ``{ano}`` é o único marcador permitido. A extensão ``.dbf``
+        é acrescentada quando o usuário informa somente o nome-base.
+        """
+
+        if chave not in self.CHAVES_NOMES_ARQUIVOS_TESTE:
+            raise ValueError(
+                "Tipo de arquivo de teste desconhecido."
+            )
+
+        nome = str(
+            modelo
+        ).strip()
+        rotulo = self.ROTULOS_NOMES_ARQUIVOS_TESTE[
+            chave
+        ]
+
+        if not nome:
+            raise ValueError(
+                f"O nome do {rotulo} não pode ficar vazio."
+            )
+
+        if len(nome) > 120:
+            raise ValueError(
+                f"O nome do {rotulo} deve ter no máximo "
+                "120 caracteres."
+            )
+
+        resolvido = nome.replace(
+            "{ano}",
+            str(date.today().year)
+        )
+
+        if "{" in resolvido or "}" in resolvido:
+            raise ValueError(
+                f"O nome do {rotulo} possui um marcador inválido. "
+                "Use somente {ano}."
+            )
+
+        if any(
+            caractere in self.CARACTERES_INVALIDOS_NOME_ARQUIVO
+            or ord(caractere) < 32
+            for caractere in resolvido
+        ):
+            raise ValueError(
+                f"O nome do {rotulo} contém caracteres não "
+                "permitidos pelo Windows."
+            )
+
+        if resolvido.endswith((" ", ".")):
+            raise ValueError(
+                f"O nome do {rotulo} não pode terminar com espaço "
+                "ou ponto."
+            )
+
+        if not nome.casefold().endswith(".dbf"):
+            nome += ".dbf"
+            resolvido += ".dbf"
+
+        if len(nome) > 120:
+            raise ValueError(
+                f"O nome do {rotulo} deve ter no máximo "
+                "120 caracteres, incluindo .dbf."
+            )
+
+        if (
+            resolvido.startswith(".")
+            or not Path(resolvido).stem.strip(". ")
+        ):
+            raise ValueError(
+                f"O nome do {rotulo} precisa ter um nome-base "
+                "antes de .dbf."
+            )
+
+        base_resolvida = Path(
+            resolvido
+        ).stem.upper()
+
+        if base_resolvida in self.NOMES_RESERVADOS_WINDOWS:
+            raise ValueError(
+                f"O nome do {rotulo} é reservado pelo Windows."
+            )
+
+        return nome[:-4] + ".dbf"
+
+    def validar_nomes_arquivos_teste(
+        self,
+        nomes: dict[str, str]
+    ) -> dict[str, str]:
+        return {
+            chave: self.validar_nome_arquivo_teste(
+                chave=chave,
+                modelo=nomes.get(
+                    chave,
+                    ""
+                )
+            )
+            for chave in self.CHAVES_NOMES_ARQUIVOS_TESTE
+        }
+
+    def resolver_nome_arquivo_teste(
+        self,
+        chave: str,
+        ano: int,
+        nomes: dict[str, str] | None = None
+    ) -> str:
+        if nomes is None:
+            nomes = (
+                self.carregar()
+                ["operacional"]
+                ["nomes_arquivos_teste"]
+            )
+
+        modelo = self.validar_nome_arquivo_teste(
+            chave=chave,
+            modelo=nomes.get(
+                chave,
+                ""
+            )
+        )
+
+        return modelo.replace(
+            "{ano}",
+            str(int(ano))
+        )
 
     def carregar(self) -> dict[str, Any]:
         padroes = self.obter_padroes()
@@ -732,6 +900,10 @@ class ConfiguracoesService:
             "caminhos",
             {}
         )
+        nomes_arquivos_teste_recebidos = operacional.get(
+            "nomes_arquivos_teste",
+            {}
+        )
         exportacao_recebida = operacional.get(
             "exportacao",
             {}
@@ -786,6 +958,27 @@ class ConfiguracoesService:
             )
             for chave in self.CHAVES_CAMINHOS
         }
+
+        nomes_arquivos_teste_padroes = (
+            self.obter_nomes_arquivos_teste_padroes()
+        )
+        nomes_arquivos_teste = {}
+
+        for chave in self.CHAVES_NOMES_ARQUIVOS_TESTE:
+            try:
+                nomes_arquivos_teste[chave] = (
+                    self.validar_nome_arquivo_teste(
+                        chave=chave,
+                        modelo=nomes_arquivos_teste_recebidos.get(
+                            chave,
+                            nomes_arquivos_teste_padroes[chave]
+                        )
+                    )
+                )
+            except ValueError:
+                nomes_arquivos_teste[chave] = (
+                    nomes_arquivos_teste_padroes[chave]
+                )
 
         exportacao = self.validar_tempos_exportacao(
             exportacao_recebida
@@ -846,6 +1039,7 @@ class ConfiguracoesService:
             },
             "operacional": {
                 "caminhos": caminhos,
+                "nomes_arquivos_teste": nomes_arquivos_teste,
                 "exportacao": exportacao
             }
         }

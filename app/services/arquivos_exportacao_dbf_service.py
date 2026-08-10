@@ -26,9 +26,9 @@ class ArquivosExportacaoDbfService:
     6. somente depois remove a pasta temporária.
 
     O serviço também pode instalar a dupla validada em:
-    - F:\\Antropozoonoses\\Teste AB1;
-    - F:\\Antropozoonoses\\Teste AB2;
-    - Documents\\SINAN\\Bancos_Atuais.
+    - destino configurado de Dengue (AB1);
+    - destino configurado de Chikungunya (AB2);
+    - destino configurado de Bancos_Atuais.
 
     Todas as substituições usam arquivos temporários, hash
     SHA-256, backup e restauração em caso de falha.
@@ -74,6 +74,8 @@ class ArquivosExportacaoDbfService:
         pasta_ab1: str | Path | None = None,
         pasta_ab2: str | Path | None = None,
         pasta_bancos_atuais: str | Path | None = None,
+        nome_arquivo_ab1: str | None = None,
+        nome_arquivo_ab2: str | None = None,
         configuracoes_service:
             ConfiguracoesService | None = None
     ):
@@ -82,11 +84,18 @@ class ArquivosExportacaoDbfService:
             or ConfiguracoesService()
         )
 
-        caminhos_configurados = (
+        operacional_configurado = (
             self.configuracoes_service
             .carregar()
             ["operacional"]
+        )
+        caminhos_configurados = (
+            operacional_configurado
             ["caminhos"]
+        )
+        nomes_configurados = (
+            operacional_configurado
+            ["nomes_arquivos_teste"]
         )
 
         if raiz_staging is None:
@@ -130,6 +139,16 @@ class ArquivosExportacaoDbfService:
                 "bancos_atuais"
             ]
 
+        if nome_arquivo_ab1 is None:
+            nome_arquivo_ab1 = nomes_configurados[
+                self.AGRAVO_DENGUE
+            ]
+
+        if nome_arquivo_ab2 is None:
+            nome_arquivo_ab2 = nomes_configurados[
+                self.AGRAVO_CHIKUNGUNYA
+            ]
+
         self.raiz_staging = Path(
             raiz_staging
         ).expanduser()
@@ -149,6 +168,41 @@ class ArquivosExportacaoDbfService:
         self.pasta_bancos_atuais = Path(
             pasta_bancos_atuais
         ).expanduser()
+
+        self.nomes_arquivos_teste = (
+            self.configuracoes_service
+            .validar_nomes_arquivos_teste(
+                {
+                    self.AGRAVO_DENGUE: nome_arquivo_ab1,
+                    self.AGRAVO_CHIKUNGUNYA:
+                        nome_arquivo_ab2
+                }
+            )
+        )
+
+    def nome_arquivo_teste(
+        self,
+        agravo: str,
+        data_referencia: date | None = None
+    ) -> str:
+        """Resolve o nome configurado para o agravo e o ano."""
+
+        agravo = self._validar_agravo(
+            agravo
+        )
+        data_referencia = (
+            data_referencia
+            or date.today()
+        )
+
+        return (
+            self.configuracoes_service
+            .resolver_nome_arquivo_teste(
+                chave=agravo,
+                ano=data_referencia.year,
+                nomes=self.nomes_arquivos_teste
+            )
+        )
 
     def validar_destinos_operacionais(
         self,
@@ -658,8 +712,9 @@ class ArquivosExportacaoDbfService:
                 caminho_zip=caminho_zip_dengue,
                 pasta_destino=pasta_extracao,
                 agravo=self.AGRAVO_DENGUE,
-                nome_destino=(
-                    f"Teste{data_referencia.year}_AB1.dbf"
+                nome_destino=self.nome_arquivo_teste(
+                    agravo=self.AGRAVO_DENGUE,
+                    data_referencia=data_referencia
                 )
             )
 
@@ -667,8 +722,9 @@ class ArquivosExportacaoDbfService:
                 caminho_zip=caminho_zip_chikungunya,
                 pasta_destino=pasta_extracao,
                 agravo=self.AGRAVO_CHIKUNGUNYA,
-                nome_destino=(
-                    f"Teste{data_referencia.year}_AB2.dbf"
+                nome_destino=self.nome_arquivo_teste(
+                    agravo=self.AGRAVO_CHIKUNGUNYA,
+                    data_referencia=data_referencia
                 )
             )
 
@@ -1149,11 +1205,17 @@ class ArquivosExportacaoDbfService:
         return {
             self.AGRAVO_DENGUE: (
                 pasta_ab1
-                / f"Teste{data_referencia.year}_AB1.dbf"
+                / self.nome_arquivo_teste(
+                    agravo=self.AGRAVO_DENGUE,
+                    data_referencia=data_referencia
+                )
             ),
             self.AGRAVO_CHIKUNGUNYA: (
                 pasta_ab2
-                / f"Teste{data_referencia.year}_AB2.dbf"
+                / self.nome_arquivo_teste(
+                    agravo=self.AGRAVO_CHIKUNGUNYA,
+                    data_referencia=data_referencia
+                )
             )
         }
 
@@ -1171,11 +1233,9 @@ class ArquivosExportacaoDbfService:
         qualquer arquivo com o mesmo nome-base do destino e com
         extensão ``.dbf`` ou ``.txt``.
 
-        Exemplos removidos após sucesso:
-        - Teste2026_AB1.dbf
-        - Teste2026_AB1.txt
-        - Teste2026_AB2.dbf
-        - Teste2026_AB2.txt
+        Para cada nome configurado, versões anteriores com o mesmo
+        nome-base e extensão ``.dbf`` ou ``.txt`` são removidas
+        somente após a instalação segura.
 
         Proteções:
         - valida os dois ZIPs históricos;
@@ -1249,8 +1309,9 @@ class ArquivosExportacaoDbfService:
                 caminho_zip=caminho_zip_dengue,
                 pasta_destino=pasta_staging,
                 agravo=self.AGRAVO_DENGUE,
-                nome_destino=(
-                    f"Teste{data_referencia.year}_AB1.dbf"
+                nome_destino=self.nome_arquivo_teste(
+                    agravo=self.AGRAVO_DENGUE,
+                    data_referencia=data_referencia
                 )
             )
 
@@ -1259,8 +1320,9 @@ class ArquivosExportacaoDbfService:
                     caminho_zip=caminho_zip_chikungunya,
                     pasta_destino=pasta_staging,
                     agravo=self.AGRAVO_CHIKUNGUNYA,
-                    nome_destino=(
-                        f"Teste{data_referencia.year}_AB2.dbf"
+                    nome_destino=self.nome_arquivo_teste(
+                        agravo=self.AGRAVO_CHIKUNGUNYA,
+                        data_referencia=data_referencia
                     )
                 )
             )

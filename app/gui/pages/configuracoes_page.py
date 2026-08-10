@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 from tkinter import filedialog
 
@@ -128,7 +129,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ),
         (
             "teste_ab1",
-            "Teste AB1",
+            "Dengue (AB1)",
             (
                 "Destino do banco anual de Dengue usado nos "
                 "testes do setor."
@@ -136,7 +137,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ),
         (
             "teste_ab2",
-            "Teste AB2",
+            "Chikungunya (AB2)",
             (
                 "Destino do banco anual de Chikungunya usado "
                 "nos testes do setor."
@@ -151,6 +152,17 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             )
         )
     )
+
+    NOMES_ARQUIVOS_TESTE_POR_CAMINHO = {
+        "teste_ab1": (
+            "dengue",
+            "Nome final do DBF de Dengue"
+        ),
+        "teste_ab2": (
+            "chikungunya",
+            "Nome final do DBF de Chikungunya"
+        )
+    }
 
     CATEGORIAS = (
         (
@@ -260,6 +272,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ]
         caminhos = operacional[
             "caminhos"
+        ]
+        nomes_arquivos_teste = operacional[
+            "nomes_arquivos_teste"
         ]
         exportacao = operacional[
             "exportacao"
@@ -403,6 +418,21 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             for chave, _, _ in self.CAMINHOS_OPERACIONAIS
         }
         self.status_caminhos: dict[
+            str,
+            ctk.CTkLabel
+        ] = {}
+        self.nomes_arquivos_teste_vars = {
+            chave: ctk.StringVar(
+                value=str(
+                    nomes_arquivos_teste[chave]
+                )
+            )
+            for chave in (
+                "dengue",
+                "chikungunya"
+            )
+        }
+        self.labels_previas_nomes_arquivos: dict[
             str,
             ctk.CTkLabel
         ] = {}
@@ -1679,7 +1709,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             titulo="Pastas operacionais",
             descricao=(
                 "Defina os destinos usados pelo fluxo de Bases. "
-                "O ArboHub testa leitura e gravação antes de salvar."
+                "Nas pastas de teste, você também pode definir o "
+                "nome final dos DBFs. O ArboHub valida tudo antes "
+                "de salvar."
             )
         )
 
@@ -1859,9 +1891,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         campo.grid(
             row=2,
             column=0,
-            columnspan=3,
             sticky="ew",
-            padx=14,
+            padx=(14, 8),
             pady=(10, 8)
         )
         campo.bind(
@@ -1873,19 +1904,163 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             add="+"
         )
 
+        ctk.CTkButton(
+            card,
+            text="📂",
+            command=(
+                lambda item=chave:
+                    self._selecionar_pasta_operacional(
+                        item
+                    )
+            ),
+            width=40,
+            height=36,
+            corner_radius=6,
+            fg_color=Colors.BUTTON,
+            hover_color=Colors.BUTTON_HOVER,
+            border_width=1,
+            border_color=Colors.BUTTON_BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI Emoji",
+                size=14
+            )
+        ).grid(
+            row=2,
+            column=1,
+            padx=(0, 14),
+            pady=(10, 8)
+        )
+
+        linha_acoes = 3
+        configuracao_nome = (
+            self.NOMES_ARQUIVOS_TESTE_POR_CAMINHO.get(
+                chave
+            )
+        )
+
+        if configuracao_nome is not None:
+            chave_nome, rotulo_nome = configuracao_nome
+
+            ctk.CTkLabel(
+                card,
+                text=rotulo_nome,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=10,
+                    weight="bold"
+                ),
+                text_color=Colors.TEXT_SECONDARY,
+                anchor="w"
+            ).grid(
+                row=3,
+                column=0,
+                columnspan=3,
+                sticky="ew",
+                padx=14,
+                pady=(4, 3)
+            )
+
+            campo_nome = ctk.CTkEntry(
+                card,
+                textvariable=(
+                    self.nomes_arquivos_teste_vars[
+                        chave_nome
+                    ]
+                ),
+                height=36,
+                corner_radius=6,
+                fg_color=Colors.INPUT,
+                border_color=Colors.INPUT_BORDER,
+                text_color=Colors.TEXT_PRIMARY,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=11
+                )
+            )
+            campo_nome.grid(
+                row=4,
+                column=0,
+                sticky="ew",
+                padx=(14, 8),
+                pady=(0, 4)
+            )
+            campo_nome.bind(
+                "<KeyRelease>",
+                lambda _evento, item=chave_nome:
+                    self._atualizar_previa_nome_arquivo(
+                        item
+                    ),
+                add="+"
+            )
+
+            ctk.CTkButton(
+                card,
+                text="✏️",
+                command=(
+                    lambda entrada=campo_nome:
+                        self._focar_campo_nome_arquivo(
+                            entrada
+                        )
+                ),
+                width=40,
+                height=36,
+                corner_radius=6,
+                fg_color=Colors.BUTTON,
+                hover_color=Colors.BUTTON_HOVER,
+                border_width=1,
+                border_color=Colors.BUTTON_BORDER,
+                text_color=Colors.TEXT_SECONDARY,
+                font=ctk.CTkFont(
+                    family="Segoe UI Emoji",
+                    size=14
+                )
+            ).grid(
+                row=4,
+                column=1,
+                padx=(0, 14),
+                pady=(0, 4)
+            )
+
+            previa = ctk.CTkLabel(
+                card,
+                text="",
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=10
+                ),
+                text_color=Colors.TEXT_MUTED,
+                anchor="w"
+            )
+            previa.grid(
+                row=5,
+                column=0,
+                columnspan=3,
+                sticky="ew",
+                padx=14,
+                pady=(0, 4)
+            )
+            self.labels_previas_nomes_arquivos[
+                chave_nome
+            ] = previa
+            self._atualizar_previa_nome_arquivo(
+                chave_nome
+            )
+            linha_acoes = 6
+
         barra_acoes = ctk.CTkFrame(
             card,
             fg_color="transparent"
         )
         barra_acoes.grid(
-            row=3,
+            row=linha_acoes,
             column=0,
             columnspan=3,
             sticky="ew",
             padx=14
         )
         barra_acoes.grid_columnconfigure(
-            3,
+            2,
             weight=1
         )
 
@@ -1894,13 +2069,6 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             comando
         ) in enumerate(
             (
-                (
-                    "Selecionar",
-                    lambda item=chave:
-                        self._selecionar_pasta_operacional(
-                            item
-                        )
-                ),
                 (
                     "Testar",
                     lambda item=chave:
@@ -1940,7 +2108,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 padx=(
                     (0, 6)
                     if coluna == 0
-                    else 6
+                    else (6, 0)
                 )
             )
 
@@ -1955,7 +2123,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             anchor="w"
         )
         status.grid(
-            row=4,
+            row=linha_acoes + 1,
             column=0,
             columnspan=3,
             sticky="ew",
@@ -2847,8 +3015,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             mensagem=(
                 "O estado local da rotina de Bases de hoje foi "
                 "resetado com segurança.\n\n"
-                "Consulta, Relatórios, Teste AB1, Teste AB2 e "
-                "Bancos_Atuais foram preservados.\n\n"
+                "Consulta, Relatórios, os destinos configurados "
+                "para Dengue e Chikungunya e Bancos_Atuais foram "
+                "preservados.\n\n"
                 "Backup criado em:\n"
                 f"{resultado['pasta_backup']}\n\n"
                 "Ao abrir SINAN → Bases, a próxima execução "
@@ -3313,6 +3482,92 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                     text="✓ Leitura e gravação confirmadas",
                     text_color=Colors.SUCCESS
                 )
+
+        return validados
+
+    def _atualizar_previa_nome_arquivo(
+        self,
+        chave: str
+    ) -> None:
+        label = self.labels_previas_nomes_arquivos.get(
+            chave
+        )
+
+        if (
+            label is None
+            or not label.winfo_exists()
+        ):
+            return
+
+        try:
+            modelo = (
+                self.configuracoes_service
+                .validar_nome_arquivo_teste(
+                    chave=chave,
+                    modelo=(
+                        self.nomes_arquivos_teste_vars[
+                            chave
+                        ].get()
+                    )
+                )
+            )
+            exemplo = modelo.replace(
+                "{ano}",
+                str(date.today().year)
+            )
+        except ValueError as erro:
+            label.configure(
+                text=f"⚠ {erro}",
+                text_color=Colors.ERROR
+            )
+            return
+
+        label.configure(
+            text=(
+                f"Exemplo atual: {exemplo}  •  "
+                "use {ano} para manter o ano automático"
+            ),
+            text_color=Colors.TEXT_MUTED
+        )
+
+    @staticmethod
+    def _focar_campo_nome_arquivo(
+        campo: ctk.CTkEntry
+    ) -> None:
+        campo.focus_set()
+        campo.selection_range(
+            0,
+            "end"
+        )
+        campo.icursor(
+            "end"
+        )
+
+    def _validar_nomes_arquivos_teste_para_salvar(
+        self
+    ) -> dict[str, str]:
+        nomes = {
+            chave: variavel.get()
+            for chave, variavel in (
+                self.nomes_arquivos_teste_vars.items()
+            )
+        }
+        validados = (
+            self.configuracoes_service
+            .validar_nomes_arquivos_teste(
+                nomes
+            )
+        )
+
+        for chave, nome in validados.items():
+            self.nomes_arquivos_teste_vars[
+                chave
+            ].set(
+                nome
+            )
+            self._atualizar_previa_nome_arquivo(
+                chave
+            )
 
         return validados
 
@@ -3862,6 +4117,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             caminhos = (
                 self._validar_caminhos_para_salvar()
             )
+            nomes_arquivos_teste = (
+                self
+                ._validar_nomes_arquivos_teste_para_salvar()
+            )
             exportacao = (
                 self._obter_configuracao_exportacao()
             )
@@ -3884,8 +4143,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 titulo="Configurações não salvas",
                 mensagem=(
                     "Revise o acesso ao SINAN, as notificações, "
-                    "a supervisão, as pastas e os tempos "
-                    "operacionais.\n\n"
+                    "a supervisão, as pastas, os nomes dos arquivos "
+                    "e os tempos operacionais.\n\n"
                     f"Detalhe: {erro}"
                 ),
                 tipo="erro",
@@ -3894,7 +4153,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             return
 
         configuracoes = {
-            "versao": 7,
+            "versao": (
+                self.configuracoes_service
+                .VERSAO_CONFIGURACOES
+            ),
             "geral": {
                 "pagina_inicial": self.PAGINAS[
                     self.pagina_inicial_var.get()
@@ -3934,6 +4196,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             },
             "operacional": {
                 "caminhos": caminhos,
+                "nomes_arquivos_teste": nomes_arquivos_teste,
                 "exportacao": exportacao
             }
         }
@@ -3992,8 +4255,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "As preferências foram salvas para esta conta do "
                 "Windows.\n\n"
                 "O login do SINAN, as notificações, os contatos "
-                "institucionais, os caminhos e os tempos operacionais "
-                "serão usados nas próximas rotinas. A página inicial, "
+                "institucionais, os caminhos, os nomes dos DBFs de "
+                "teste e os tempos operacionais serão usados nas "
+                "próximas rotinas. A página inicial, "
                 "o estado da janela e o dashboard continuam seguindo "
                 "as preferências gerais."
                 + mensagem_aparencia
@@ -4011,8 +4275,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             mensagem=(
                 "As preferências gerais, o tema, a escala da interface, "
                 "o login automático, os sons, os contatos de supervisão, "
-                "os caminhos "
-                "operacionais e os tempos da exportação voltarão aos "
+                "os caminhos, os nomes dos DBFs de teste e os tempos "
+                "da exportação voltarão aos "
                 "valores padrão.\n\n"
                 "A credencial protegida pelo Windows será preservada, "
                 "mas o login automático ficará desativado. Nenhum "
@@ -4057,6 +4321,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         ]
         caminhos = operacional[
             "caminhos"
+        ]
+        nomes_arquivos_teste = operacional[
+            "nomes_arquivos_teste"
         ]
         exportacao = operacional[
             "exportacao"
@@ -4192,6 +4459,16 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                     text_color=Colors.TEXT_MUTED
                 )
 
+        for chave, nome in nomes_arquivos_teste.items():
+            self.nomes_arquivos_teste_vars[
+                chave
+            ].set(
+                str(nome)
+            )
+            self._atualizar_previa_nome_arquivo(
+                chave
+            )
+
         self.intervalo_exportacao_var.set(
             self._rotulo_por_valor(
                 self.INTERVALOS_EXPORTACAO,
@@ -4255,8 +4532,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "preservada no Windows.\n\n"
                 "Feche e abra o ArboHub para aplicar o tema Escuro "
                 "e a escala de 100%. "
-                "Teste as quatro pastas operacionais antes de iniciar "
-                "uma nova rotina de Bases."
+                "Os nomes dos DBFs de teste também voltaram ao "
+                "padrão. Teste as quatro pastas operacionais antes "
+                "de iniciar uma nova rotina de Bases."
             ),
             tipo="sucesso",
             texto_botao="Entendi"
@@ -4673,4 +4951,3 @@ class ConfirmacaoResetBasesDialog(ctk.CTkToplevel):
     def mostrar(self) -> str | None:
         self.wait_window()
         return self.resultado
-

@@ -78,7 +78,7 @@ class RotinaBasesService:
     - caso contrário, acompanha o processamento e baixa a dupla;
     - arquiva os ZIPs no histórico;
     - valida a extração;
-    - atualiza Teste AB1 e Teste AB2;
+    - atualiza os destinos configurados de Dengue e Chikungunya;
     - atualiza Documents\\SINAN\\Bancos_Atuais.
 
     O serviço foi separado da interface para permitir:
@@ -1390,7 +1390,8 @@ class RotinaBasesService:
                 etapa=self.ETAPA_PASTAS_TESTE,
                 estado=self.ESTADO_INICIADA,
                 mensagem=(
-                    "Atualizando Teste AB1 e Teste AB2."
+                    "Atualizando os destinos configurados de "
+                    "Dengue e Chikungunya."
                 )
             )
 

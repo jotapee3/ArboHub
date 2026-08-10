@@ -254,7 +254,10 @@ class ManutencaoService:
                 "",
                 "SERÁ PRESERVADO",
                 "• Consulta e relatórios de óbitos;",
-                "• DBFs das pastas Teste AB1 e Teste AB2;",
+                (
+                    "• DBFs dos destinos configurados para Dengue "
+                    "e Chikungunya;"
+                ),
                 "• DBFs de Bancos_Atuais;",
                 "• arquivos e registros de outras datas.",
                 "",
