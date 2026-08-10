@@ -7,6 +7,9 @@ from typing import Any
 from app.automation.sinan.navegador_sinan import NavegadorSinan
 from app.automation.sinan.verificacao_obitos import VerificacaoObitos
 from app.services.checkpoint_service import CheckpointService
+from app.services.usuario_windows_service import (
+    UsuarioWindowsService
+)
 
 
 class ConsultaObitosService:
@@ -36,10 +39,14 @@ class ConsultaObitosService:
 
     def __init__(
         self,
-        checkpoint_service: CheckpointService | None = None
+        checkpoint_service: CheckpointService | None = None,
+        usuario_windows_service: UsuarioWindowsService | None = None
     ):
         self.checkpoint_service = (
             checkpoint_service or CheckpointService()
+        )
+        self.usuario_windows_service = (
+            usuario_windows_service or UsuarioWindowsService()
         )
 
         self._eventos: Queue[dict[str, Any]] = Queue()
@@ -144,6 +151,7 @@ class ConsultaObitosService:
         )
         agravo_atual: str | None = None
         etapa_atual = self.ETAPA_ABRIR_SINAN
+        responsavel = self._obter_responsavel()
 
         evento_final = self.EVENTO_CONCLUIDO
         mensagem_final = (
@@ -257,7 +265,8 @@ class ConsultaObitosService:
                 ),
                 observacao=confirmacao_dengue[
                     "observacao"
-                ]
+                ],
+                responsavel=responsavel
             )
             self._emitir_atualizacao()
 
@@ -330,7 +339,8 @@ class ConsultaObitosService:
                     confirmacao_chikungunya[
                         "observacao"
                     ]
-                )
+                ),
+                responsavel=responsavel
             )
             self._emitir_atualizacao()
 
@@ -411,6 +421,26 @@ class ConsultaObitosService:
             )
 
         return resultado
+
+    def _obter_responsavel(self) -> str | None:
+        """
+        Obtém o nome público da conta Windows para o relatório.
+
+        Uma falha inesperada na identificação não deve impedir a
+        rotina do SINAN. Nesse caso, o relatório continua sendo
+        concluído sem atribuição automática.
+        """
+
+        try:
+            identidade = (
+                self.usuario_windows_service.obter_identidade()
+            )
+            nome = str(
+                identidade.nome_exibicao or ""
+            ).strip()
+            return nome or None
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # Eventos e validações
