@@ -24,6 +24,9 @@ from app.services.manutencao_service import (
 from app.services.notificacoes_service import (
     NotificacoesService
 )
+from app.services.usuario_windows_service import (
+    UsuarioWindowsService
+)
 
 
 class ConfiguracoesPage(ctk.CTkScrollableFrame):
@@ -213,6 +216,12 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
         self.notificacoes_service = (
             NotificacoesService()
+        )
+        self.usuario_windows_service = (
+            UsuarioWindowsService()
+        )
+        self.identidade_windows = (
+            self.usuario_windows_service.obter_identidade()
         )
         self.configuracoes = (
             self.configuracoes_service.carregar()
@@ -466,6 +475,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self._categoria_atual = "inicio"
 
         self._criar_cabecalho_inicio()
+        self._criar_cartao_usuario_windows()
         self._criar_grade_categorias()
         self._criar_rodape_inicio()
         self.after_idle(self._rolar_para_topo)
@@ -597,13 +607,116 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             sticky="e"
         )
 
+    def _criar_cartao_usuario_windows(self):
+        identidade = self.identidade_windows
+
+        card = ctk.CTkFrame(
+            self,
+            fg_color=Colors.SURFACE,
+            corner_radius=9,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        card.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=40,
+            pady=(0, 9)
+        )
+        card.grid_columnconfigure(1, weight=1)
+
+        avatar = ctk.CTkFrame(
+            card,
+            width=50,
+            height=50,
+            corner_radius=25,
+            fg_color=Colors.SURFACE_HOVER
+        )
+        avatar.grid(
+            row=0,
+            column=0,
+            rowspan=2,
+            padx=(16, 12),
+            pady=14
+        )
+        avatar.grid_propagate(False)
+        avatar.grid_rowconfigure(0, weight=1)
+        avatar.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            avatar,
+            text="👤",
+            font=ctk.CTkFont(
+                family="Segoe UI Emoji",
+                size=23
+            ),
+            text_color=Colors.TEXT_SECONDARY
+        ).grid(
+            row=0,
+            column=0
+        )
+
+        ctk.CTkLabel(
+            card,
+            text=identidade.nome_exibicao,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=13,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="sw"
+        ).grid(
+            row=0,
+            column=1,
+            sticky="sew",
+            padx=(0, 12),
+            pady=(14, 1)
+        )
+
+        ctk.CTkLabel(
+            card,
+            text=identidade.conta,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="nw"
+        ).grid(
+            row=1,
+            column=1,
+            sticky="new",
+            padx=(0, 12),
+            pady=(1, 14)
+        )
+
+        ctk.CTkLabel(
+            card,
+            text="Conta do Windows",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10,
+                weight="bold"
+            ),
+            text_color=Colors.INFO,
+            anchor="e"
+        ).grid(
+            row=0,
+            column=2,
+            rowspan=2,
+            sticky="e",
+            padx=(12, 18)
+        )
+
     def _criar_grade_categorias(self):
         grade = ctk.CTkFrame(
             self,
             fg_color="transparent"
         )
         grade.grid(
-            row=1,
+            row=2,
             column=0,
             sticky="ew",
             padx=40,
@@ -773,7 +886,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             fg_color="transparent"
         )
         rodape.grid(
-            row=2,
+            row=3,
             column=0,
             sticky="ew",
             padx=40,
