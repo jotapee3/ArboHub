@@ -206,7 +206,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
     def __init__(
         self,
         master,
-        ao_salvar=None
+        ao_salvar=None,
+        ao_reiniciar=None
     ):
         super().__init__(
             master,
@@ -217,6 +218,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
 
         self.ao_salvar = ao_salvar
+        self.ao_reiniciar = ao_reiniciar
         self.configuracoes_service = (
             ConfiguracoesService()
         )
@@ -4089,22 +4091,6 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
 
     def salvar_configuracoes(self):
-        aparencia_anterior = self.configuracoes.get(
-            "aparencia",
-            {}
-        )
-        escala_anterior = int(
-            aparencia_anterior.get(
-                "escala_percentual",
-                100
-            )
-        )
-        tema_anterior = str(
-            aparencia_anterior.get(
-                "tema",
-                "escuro"
-            )
-        )
         escala_percentual = self.ESCALAS_INTERFACE[
             self.escala_interface_var.get()
         ]
@@ -4215,56 +4201,25 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 self.configuracoes
             )
 
-        escala_alterada = (
-            escala_percentual
-            != escala_anterior
-        )
-        tema_alterado = (
-            tema_interface
-            != tema_anterior
-        )
-
-        alteracoes_aparencia = []
-
-        if tema_alterado:
-            alteracoes_aparencia.append(
-                "tema “"
-                + self.tema_interface_var.get()
-                + "”"
-            )
-
-        if escala_alterada:
-            alteracoes_aparencia.append(
-                f"escala de {escala_percentual}%"
-            )
-
-        mensagem_aparencia = ""
-
-        if alteracoes_aparencia:
-            mensagem_aparencia = (
-                "\n\nA aparência foi alterada: "
-                + " e ".join(alteracoes_aparencia)
-                + ". Feche e abra o ArboHub para aplicar a mudança "
-                "em todas as telas, diálogos e imagens."
-            )
-
-        mostrar_dialogo_arbohub(
+        reiniciar_agora = solicitar_confirmacao_arbohub(
             master=self.winfo_toplevel(),
             titulo="Configurações salvas",
             mensagem=(
-                "As preferências foram salvas para esta conta do "
-                "Windows.\n\n"
-                "O login do SINAN, as notificações, os contatos "
-                "institucionais, os caminhos, os nomes dos DBFs de "
-                "teste e os tempos operacionais serão usados nas "
-                "próximas rotinas. A página inicial, "
-                "o estado da janela e o dashboard continuam seguindo "
-                "as preferências gerais."
-                + mensagem_aparencia
+                "Configurações salvas com sucesso.\n\n"
+                "Deseja reiniciar o ArboHub agora para aplicar "
+                "as alterações?\n\n"
+                "Se houver uma rotina em andamento, escolha Depois."
             ),
             tipo="sucesso",
-            texto_botao="Entendi"
+            texto_confirmar="Reiniciar agora",
+            texto_cancelar="Depois"
         )
+
+        if (
+            reiniciar_agora
+            and callable(self.ao_reiniciar)
+        ):
+            self.ao_reiniciar()
 
 
 

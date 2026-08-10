@@ -1,6 +1,9 @@
+import os
+import sys
 import customtkinter as ctk
 
 from pathlib import Path
+from app.gui.components.arbohub_dialog import mostrar_dialogo_arbohub
 from app.gui.components.sidebar import Sidebar
 from app.gui.components.content_area import ContentArea
 from app.gui.pages.inicio_page import InicioPage
@@ -131,7 +134,8 @@ class MainWindow(ctk.CTk):
             "configuracoes",
             lambda master: ConfiguracoesPage(
                 master,
-                ao_salvar=self._ao_salvar_configuracoes
+                ao_salvar=self._ao_salvar_configuracoes,
+                ao_reiniciar=self.reiniciar_aplicativo
             )
         )
         self.sidebar.selecionar_configuracoes()
@@ -183,6 +187,56 @@ class MainWindow(ctk.CTk):
                 pagina_sinan.recarregar_configuracoes_operacionais()
 
         self._aplicar_estado_janela()
+
+    def reiniciar_aplicativo(self):
+        """
+        Reinicia o ArboHub usando a mesma execução atual.
+
+        Em desenvolvimento, substitui somente o processo main.py e
+        preserva o supervisor dev.py. Em uma versão empacotada, abre
+        novamente o próprio executável.
+        """
+
+        if getattr(sys, "frozen", False):
+            comando = [
+                sys.executable,
+                *sys.argv[1:]
+            ]
+        else:
+            raiz_projeto = (
+                Path(__file__).resolve().parents[3]
+            )
+            comando = [
+                sys.executable,
+                str(raiz_projeto / "main.py"),
+                *sys.argv[1:]
+            ]
+
+        try:
+            self.withdraw()
+            self.update_idletasks()
+            os.execv(
+                comando[0],
+                comando
+            )
+        except Exception as erro:
+            self.deiconify()
+            self.lift()
+
+            mostrar_dialogo_arbohub(
+                master=self,
+                titulo="Reinicialização não concluída",
+                mensagem=(
+                    "As configurações continuam salvas, mas o "
+                    "ArboHub não conseguiu reiniciar "
+                    "automaticamente.\n\n"
+                    "Feche o programa e abra-o novamente para "
+                    "aplicar todas as alterações.\n\n"
+                    f"Detalhe: {erro}"
+                ),
+                tipo="erro",
+                texto_botao="Entendi"
+            )
 
     def _aplicar_estado_janela(self):
         maximizado = self.configuracoes[
