@@ -28,6 +28,7 @@ class AtualizacaoGalService:
     ETAPA_RELATORIO = "relatorio"
     ETAPA_DOWNLOAD = "download"
     ETAPA_HISTORICO = "historico"
+    ETAPA_BANCO_ATUAL = "banco_atual"
     ETAPA_TESTE_SORO = "teste_soro"
     ETAPA_FINALIZACAO = "finalizacao"
 
@@ -230,7 +231,12 @@ class AtualizacaoGalService:
         self._etapa(
             self.ETAPA_HISTORICO,
             "concluida",
-            "Arquivo original preservado no histórico mensal."
+            "ZIP semanal atualizado com o nome da segunda-feira final."
+        )
+        self._etapa(
+            self.ETAPA_BANCO_ATUAL,
+            "concluida",
+            "Banco_Atual atualizado como gal_sorotipo."
         )
         self._etapa(
             self.ETAPA_TESTE_SORO,
@@ -250,8 +256,8 @@ class AtualizacaoGalService:
         self._emitir(
             self.EVENTO_CONCLUIDO,
             mensagem=(
-                "O arquivo foi salvo no histórico e o TesteSORO "
-                "foi atualizado."
+                "O histórico, o Banco_Atual e o TesteSORO "
+                "foram atualizados."
             ),
             resultado=resultado
         )

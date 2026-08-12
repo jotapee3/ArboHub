@@ -191,9 +191,8 @@ class ExportacaoSorotipoGal:
             )
 
         raise RuntimeError(
-            "O GAL não iniciou o download após o botão Gerar. Use a "
-            "opção 'Usar arquivo já baixado' caso o relatório tenha "
-            "sido salvo fora do navegador do ArboHub."
+            "O GAL não iniciou o download após o botão Gerar. Feche "
+            "o navegador do GAL e inicie a rotina novamente."
         )
 
     def _copiar_download_concluido(
@@ -301,7 +300,7 @@ class ExportacaoSorotipoGal:
 
                 raise RuntimeError(
                     "O GAL baixou uma página HTML em vez do relatório. "
-                    "Gere novamente ou use 'Usar arquivo já baixado'."
+                    "Feche o navegador e inicie a rotina novamente."
                 )
 
             linhas = [
@@ -332,8 +331,8 @@ class ExportacaoSorotipoGal:
 
         raise RuntimeError(
             "O GAL baixou um arquivo, mas o formato do relatório não "
-            "foi reconhecido. Use 'Usar arquivo já baixado' e "
-            "selecione o arquivo gerado pelo portal."
+            "foi reconhecido. Feche o navegador do GAL e inicie a "
+            "rotina novamente."
         )
 
     def _parece_dbf(self, conteudo: bytes) -> bool:

@@ -190,6 +190,33 @@ class DashboardService:
             )
             conexao.commit()
 
+    def resetar_gal(
+        self,
+        data_referencia: date | None = None
+    ):
+        """
+        Reseta somente o checkpoint visual do GAL no dia informado.
+
+        Arquivos do histórico, Banco_Atual, TesteSORO e checkpoints
+        do SINAN permanecem intactos.
+        """
+
+        data_referencia = data_referencia or date.today()
+        self._garantir_linha(data_referencia)
+
+        with self.conectar() as conexao:
+            conexao.execute(
+                """
+                    UPDATE rotina_diaria
+                    SET
+                        atualizacao_gal = 0,
+                        atualizacao_gal_em = NULL
+                    WHERE data_referencia = ?
+                """,
+                (data_referencia.isoformat(),)
+            )
+            conexao.commit()
+
     def _garantir_linha(
         self,
         data_referencia: date

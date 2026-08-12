@@ -27,8 +27,8 @@ class ArboHubDialog(ctk.CTkToplevel):
     """
 
     LARGURA = 540
-    ALTURA_MINIMA = 360
-    ALTURA_MAXIMA = 540
+    ALTURA_MINIMA = 420
+    ALTURA_MAXIMA = 720
 
     CONFIGURACOES = {
         "informacao": {
@@ -120,7 +120,11 @@ class ArboHubDialog(ctk.CTkToplevel):
         self._criar_rodape()
 
         self.after(
-            30,
+            20,
+            self._ajustar_altura_ao_conteudo
+        )
+        self.after(
+            60,
             self._centralizar
         )
         self.after(
@@ -153,10 +157,7 @@ class ArboHubDialog(ctk.CTkToplevel):
             )
             linhas_visuais += quantidade
 
-        altura_estimada = (
-            285
-            + linhas_visuais * 21
-        )
+        altura_estimada = 325 + linhas_visuais * 24
 
         return max(
             self.ALTURA_MINIMA,
@@ -181,6 +182,7 @@ class ArboHubDialog(ctk.CTkToplevel):
             1,
             weight=1
         )
+        self.cabecalho_dialogo = cabecalho
 
         icone = ctk.CTkFrame(
             cabecalho,
@@ -281,8 +283,9 @@ class ArboHubDialog(ctk.CTkToplevel):
         )
         caixa.grid_columnconfigure(0, weight=1)
         caixa.grid_rowconfigure(0, weight=1)
+        self.caixa_mensagem = caixa
 
-        ctk.CTkLabel(
+        self.label_mensagem = ctk.CTkLabel(
             caixa,
             text=self.mensagem,
             font=ctk.CTkFont(
@@ -293,7 +296,8 @@ class ArboHubDialog(ctk.CTkToplevel):
             anchor="nw",
             justify="left",
             wraplength=455
-        ).grid(
+        )
+        self.label_mensagem.grid(
             row=0,
             column=0,
             sticky="nsew",
@@ -313,6 +317,7 @@ class ArboHubDialog(ctk.CTkToplevel):
             sticky="ew"
         )
         rodape.grid_columnconfigure(0, weight=1)
+        self.rodape_dialogo = rodape
 
         botoes = ctk.CTkFrame(
             rodape,
@@ -384,6 +389,51 @@ class ArboHubDialog(ctk.CTkToplevel):
                 weight="bold"
             )
         ).pack(side="left")
+
+    def _ajustar_altura_ao_conteudo(self):
+        """
+        Mede os widgets depois que o Windows aplicou fonte e escala.
+
+        O cálculo inicial evita a janela pequena durante a criação; esta
+        segunda passagem usa a altura realmente solicitada pelo texto.
+        """
+
+        try:
+            self.update_idletasks()
+
+            altura_requerida = (
+                self.cabecalho_dialogo.winfo_reqheight()
+                + self.caixa_mensagem.winfo_reqheight()
+                + self.rodape_dialogo.winfo_reqheight()
+                + 48
+            )
+            limite_tela = max(
+                self.ALTURA_MINIMA,
+                int(self.winfo_screenheight() * 0.9)
+            )
+            altura_maxima = min(
+                self.ALTURA_MAXIMA,
+                limite_tela
+            )
+            nova_altura = min(
+                altura_maxima,
+                max(
+                    self.altura_dialogo,
+                    altura_requerida
+                )
+            )
+
+            if nova_altura != self.altura_dialogo:
+                self.altura_dialogo = nova_altura
+                self.geometry(
+                    f"{self.LARGURA}x{self.altura_dialogo}"
+                )
+                self.minsize(
+                    self.LARGURA,
+                    self.altura_dialogo
+                )
+        except Exception:
+            pass
 
     def _confirmar(self):
         self.resultado = True

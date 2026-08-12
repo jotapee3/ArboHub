@@ -4,7 +4,7 @@ import os
 import shutil
 import tempfile
 import zipfile
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -37,6 +37,7 @@ class ArquivosGalService:
     def __init__(
         self,
         pasta_historico: str | Path | None = None,
+        pasta_banco_atual: str | Path | None = None,
         pasta_teste_soro: str | Path | None = None
     ):
         self.pasta_historico = Path(
@@ -46,6 +47,15 @@ class ArquivosGalService:
                 / "Documents"
                 / "GAL"
                 / "Historico"
+            )
+        )
+        self.pasta_banco_atual = Path(
+            pasta_banco_atual
+            or (
+                Path.home()
+                / "Documents"
+                / "GAL"
+                / "Banco_Atual"
             )
         )
         self.pasta_teste_soro = Path(
@@ -82,12 +92,20 @@ class ArquivosGalService:
         self,
         data_referencia: date | None = None
     ) -> dict[str, Path]:
-        pasta_mes = self.pasta_historico_mes(data_referencia)
+        _data_inicio, data_fim = self.intervalo_semanal(
+            data_referencia
+        )
+        pasta_mes = self.pasta_historico_mes(data_fim)
         pasta_mes.mkdir(parents=True, exist_ok=True)
+        self.pasta_banco_atual.mkdir(parents=True, exist_ok=True)
 
         self._validar_pasta_gravavel(
             pasta_mes,
             "histórico mensal do GAL"
+        )
+        self._validar_pasta_gravavel(
+            self.pasta_banco_atual,
+            "Banco_Atual do GAL"
         )
 
         if not self.pasta_teste_soro.exists():
@@ -110,6 +128,7 @@ class ArquivosGalService:
 
         return {
             "historico": pasta_mes,
+            "banco_atual": self.pasta_banco_atual,
             "teste_soro": self.pasta_teste_soro
         }
 
@@ -119,7 +138,7 @@ class ArquivosGalService:
         data_referencia: date | None = None
     ) -> dict[str, object]:
         """
-        Preserva o arquivo original e atualiza o banco de teste.
+        Normaliza o relatório e substitui os três destinos do GAL.
 
         Quando o GAL entrega um ZIP, somente um arquivo de relatorio
         compativel e extraido. Nomes internos nunca sao usados como
@@ -137,6 +156,9 @@ class ArquivosGalService:
         if origem.stat().st_size <= 0:
             raise ValueError("O arquivo do GAL está vazio.")
 
+        data_inicio, data_fim = self.intervalo_semanal(
+            data_referencia
+        )
         destinos = self.validar_destinos(data_referencia)
         with tempfile.TemporaryDirectory(
             prefix="arbohub_gal_conteudo_"
@@ -145,58 +167,56 @@ class ArquivosGalService:
                 origem=origem,
                 pasta_temporaria=Path(pasta_temporaria)
             )
-            arquivo_historico = self._copiar_para_historico(
-                origem=origem,
-                pasta_historico=destinos["historico"]
-            )
             extensao = arquivo_relatorio.suffix.casefold()
-            nome_final = f"gal_sorotipo-TESTE{extensao}"
-            arquivo_teste = destinos["teste_soro"] / nome_final
+            if extensao != ".csv":
+                raise ValueError(
+                    "O relatório semanal do GAL precisa ser um CSV "
+                    "para atualizar o histórico e os bancos."
+                )
 
+            nome_base_historico = f"gal_{data_fim.isoformat()}"
+            arquivo_historico = (
+                destinos["historico"]
+                / f"{nome_base_historico}.zip"
+            )
+            arquivo_banco_atual = (
+                destinos["banco_atual"]
+                / "gal_sorotipo.csv"
+            )
+            arquivo_teste = (
+                destinos["teste_soro"]
+                / "gal_sorotipo-TESTE.csv"
+            )
+
+            self._criar_zip_historico_atomico(
+                origem=arquivo_relatorio,
+                destino=arquivo_historico,
+                nome_csv=f"{nome_base_historico}.csv"
+            )
+            self._copiar_atomico(
+                origem=arquivo_relatorio,
+                destino=arquivo_banco_atual
+            )
             self._copiar_atomico(
                 origem=arquivo_relatorio,
                 destino=arquivo_teste
             )
-
-        data_inicio, data_fim = self.intervalo_semanal(
-            data_referencia
-        )
+            self._remover_historicos_soltos(
+                pasta=destinos["historico"],
+                nome_base=nome_base_historico
+            )
 
         return {
             "arquivo_original": origem,
             "arquivo_historico": arquivo_historico,
+            "arquivo_banco_atual": arquivo_banco_atual,
             "arquivo_teste": arquivo_teste,
             "pasta_historico": destinos["historico"],
+            "pasta_banco_atual": destinos["banco_atual"],
             "pasta_teste_soro": destinos["teste_soro"],
             "data_inicio": data_inicio,
             "data_fim": data_fim
         }
-
-    def _copiar_para_historico(
-        self,
-        origem: Path,
-        pasta_historico: Path
-    ) -> Path:
-        nome = origem.name or "relatorio_gal"
-        destino = pasta_historico / nome
-
-        if destino.exists():
-            momento = datetime.now().strftime("%Y%m%d_%H%M%S")
-            destino = pasta_historico / (
-                f"{Path(nome).stem}_{momento}{Path(nome).suffix}"
-            )
-
-            contador = 2
-
-            while destino.exists():
-                destino = pasta_historico / (
-                    f"{Path(nome).stem}_{momento}_{contador}"
-                    f"{Path(nome).suffix}"
-                )
-                contador += 1
-
-        self._copiar_atomico(origem, destino)
-        return destino
 
     def _obter_relatorio(
         self,
@@ -253,6 +273,58 @@ class ArquivosGalService:
             )
 
         return destino
+
+    def _criar_zip_historico_atomico(
+        self,
+        origem: Path,
+        destino: Path,
+        nome_csv: str
+    ):
+        temporario = destino.with_name(
+            f".{destino.name}.arbohub_{os.getpid()}.tmp"
+        )
+
+        try:
+            with zipfile.ZipFile(
+                temporario,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED
+            ) as arquivo_zip:
+                arquivo_zip.write(origem, arcname=nome_csv)
+
+            with zipfile.ZipFile(temporario) as arquivo_zip:
+                membros = arquivo_zip.infolist()
+                if len(membros) != 1 or membros[0].filename != nome_csv:
+                    raise OSError(
+                        "O ZIP semanal do GAL foi criado com uma "
+                        "estrutura inesperada."
+                    )
+                if membros[0].file_size != origem.stat().st_size:
+                    raise OSError(
+                        "O CSV dentro do ZIP semanal ficou incompleto."
+                    )
+                if arquivo_zip.testzip() is not None:
+                    raise OSError(
+                        "O ZIP semanal do GAL falhou na validação."
+                    )
+
+            os.replace(temporario, destino)
+        finally:
+            try:
+                if temporario.exists():
+                    temporario.unlink()
+            except OSError:
+                pass
+
+    def _remover_historicos_soltos(
+        self,
+        pasta: Path,
+        nome_base: str
+    ):
+        for extensao in self.EXTENSOES_RELATORIO:
+            legado = pasta / f"{nome_base}{extensao}"
+            if legado.is_file():
+                legado.unlink()
 
     def _copiar_atomico(self, origem: Path, destino: Path):
         temporario = destino.with_name(

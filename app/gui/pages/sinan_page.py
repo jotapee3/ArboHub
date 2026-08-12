@@ -2504,7 +2504,6 @@ class SinanPage(ctk.CTkFrame):
         self.criar_titulo_destinos_bases()
         self.criar_cards_destinos_bases()
         self.criar_painel_progresso()
-        self.criar_painel_operacoes()
 
     def criar_painel_status(self):
         """
@@ -3681,7 +3680,7 @@ class SinanPage(ctk.CTkFrame):
 
             card["descricao"].configure(
                 wraplength=max(
-                    largura - 36,
+                    min(largura - 64, 245),
                     180
                 )
             )
@@ -3865,7 +3864,7 @@ class SinanPage(ctk.CTkFrame):
         painel = self._criar_painel(
             self.tab_bases,
             linha=3,
-            pady=(18, 0)
+            pady=(18, 20)
         )
         painel.grid_columnconfigure(0, weight=1)
 
@@ -4031,45 +4030,6 @@ class SinanPage(ctk.CTkFrame):
 
         self._atualizar_resumo_bases_visual(
             estados
-        )
-
-    def criar_painel_operacoes(self):
-        painel = self._criar_painel(
-            self.tab_bases,
-            linha=4,
-            pady=(16, 20)
-        )
-
-        ctk.CTkLabel(
-            painel,
-            text="Últimas operações",
-            font=ctk.CTkFont(
-                family="Segoe UI",
-                size=16,
-                weight="bold"
-            ),
-            text_color=Colors.TEXT_PRIMARY,
-            anchor="w"
-        ).pack(
-            fill="x",
-            padx=22,
-            pady=(18, 6)
-        )
-
-        self.label_operacao = ctk.CTkLabel(
-            painel,
-            text="Nenhuma operação realizada.",
-            font=ctk.CTkFont(
-                family="Segoe UI",
-                size=13
-            ),
-            text_color=Colors.TEXT_SECONDARY,
-            anchor="w"
-        )
-        self.label_operacao.pack(
-            fill="x",
-            padx=22,
-            pady=(0, 18)
         )
 
     # ------------------------------------------------------------------
@@ -6397,8 +6357,9 @@ class SinanPage(ctk.CTkFrame):
 
     def registrar_operacao(self, mensagem):
         horario = datetime.now().strftime("%H:%M:%S")
+        self._ultima_operacao = f"{horario} — {mensagem}"
 
         if hasattr(self, "label_operacao"):
             self.label_operacao.configure(
-                text=f"{horario} — {mensagem}"
+                text=self._ultima_operacao
             )
