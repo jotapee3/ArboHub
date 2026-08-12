@@ -14,10 +14,9 @@ from typing import Any
 from app.core.database import (
     conectar_sqlite,
     obter_caminho_banco_na_raiz,
-    obter_caminho_banco_padrao,
-    obter_raiz_projeto,
     resolver_caminho_banco,
 )
+from app.core.caminhos import obter_raiz_projeto
 from app.services.arquivos_exportacao_dbf_service import (
     ArquivosExportacaoDbfService
 )
@@ -108,13 +107,11 @@ class ManutencaoService:
             raiz_projeto
         ).expanduser().resolve()
 
-        if caminho_banco is None:
+        if caminho_banco is None and raiz_personalizada:
             caminho_banco = (
                 obter_caminho_banco_na_raiz(
                     self.raiz_projeto
                 )
-                if raiz_personalizada
-                else obter_caminho_banco_padrao()
             )
 
         self.caminho_banco = resolver_caminho_banco(
@@ -127,8 +124,7 @@ class ManutencaoService:
         )
 
         self.pasta_dados = (
-            self.raiz_projeto
-            / "data"
+            self.caminho_banco.parent
         )
         self.pasta_backups = (
             self.pasta_dados

@@ -8,6 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
+from app.core.caminhos import obter_pasta_temporaria_arbohub
 from app.services.configuracoes_service import (
     ConfiguracoesService
 )
@@ -99,23 +100,8 @@ class ArquivosExportacaoDbfService:
         )
 
         if raiz_staging is None:
-            local_app_data = os.environ.get(
-                "LOCALAPPDATA"
-            )
-
-            if local_app_data:
-                base_local = Path(local_app_data)
-            else:
-                base_local = (
-                    Path.home()
-                    / "AppData"
-                    / "Local"
-                )
-
             raiz_staging = (
-                base_local
-                / "ArboHub"
-                / "temp"
+                obter_pasta_temporaria_arbohub()
                 / "exportacoes"
             )
 

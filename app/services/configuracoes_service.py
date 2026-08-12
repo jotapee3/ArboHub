@@ -8,6 +8,8 @@ from pathlib import Path
 from time import time_ns
 from typing import Any
 
+from app.core.caminhos import obter_pasta_local_arbohub
+
 
 class ConfiguracoesService:
     """
@@ -119,22 +121,8 @@ class ConfiguracoesService:
         caminho_arquivo: str | Path | None = None
     ):
         if caminho_arquivo is None:
-            local_app_data = os.environ.get(
-                "LOCALAPPDATA"
-            )
-
-            if local_app_data:
-                pasta_base = Path(local_app_data)
-            else:
-                pasta_base = (
-                    Path.home()
-                    / "AppData"
-                    / "Local"
-                )
-
             caminho_arquivo = (
-                pasta_base
-                / "ArboHub"
+                obter_pasta_local_arbohub()
                 / "configuracoes.json"
             )
 
