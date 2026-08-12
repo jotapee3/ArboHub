@@ -1,5 +1,0 @@
-📁 .vscode
-
-Configurações específicas do VS Code.
-
-Não mexeremos nela por enquanto.
