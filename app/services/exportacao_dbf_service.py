@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
+
+from app.core.database import (
+    conectar_sqlite,
+    resolver_caminho_banco,
+)
 
 
 class ExportacaoDbfService:
@@ -36,32 +40,17 @@ class ExportacaoDbfService:
         self,
         caminho_banco: str | Path | None = None
     ):
-        raiz_projeto = Path(__file__).resolve().parents[2]
-
-        if caminho_banco is None:
-            caminho_banco = (
-                raiz_projeto
-                / "data"
-                / "arbohub.db"
-            )
-
-        self.caminho_banco = Path(caminho_banco)
-        self.caminho_banco.parent.mkdir(
-            parents=True,
-            exist_ok=True
+        self.caminho_banco = resolver_caminho_banco(
+            caminho_banco
         )
 
         self.criar_tabelas()
 
-    def conectar(self) -> sqlite3.Connection:
-        conexao = sqlite3.connect(
-            self.caminho_banco
+    def conectar(self):
+        return conectar_sqlite(
+            self.caminho_banco,
+            chaves_estrangeiras=True,
         )
-        conexao.row_factory = sqlite3.Row
-        conexao.execute(
-            "PRAGMA foreign_keys = ON"
-        )
-        return conexao
 
     def criar_tabelas(self):
         comando_lotes = """

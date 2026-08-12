@@ -6,6 +6,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from app.core.database import (
+    conectar_sqlite,
+    resolver_caminho_banco,
+)
+
 
 @dataclass(frozen=True)
 class EventoHistorico:
@@ -80,12 +85,9 @@ class HistoricoService:
         self,
         caminho_banco: str | Path | None = None,
     ):
-        raiz_projeto = Path(__file__).resolve().parents[2]
-
-        if caminho_banco is None:
-            caminho_banco = raiz_projeto / "data" / "arbohub.db"
-
-        self.caminho_banco = Path(caminho_banco).expanduser().resolve()
+        self.caminho_banco = resolver_caminho_banco(
+            caminho_banco
+        )
 
     def consultar(
         self,
@@ -169,14 +171,12 @@ class HistoricoService:
             resumo=resumo,
         )
 
-    def _conectar(self) -> sqlite3.Connection:
-        conexao = sqlite3.connect(
+    def _conectar(self):
+        return conectar_sqlite(
             self.caminho_banco,
             timeout=5,
+            somente_leitura=True,
         )
-        conexao.row_factory = sqlite3.Row
-        conexao.execute("PRAGMA query_only = ON")
-        return conexao
 
     @staticmethod
     def _listar_tabelas(

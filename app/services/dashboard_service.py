@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import sqlite3
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+from app.core.database import (
+    conectar_sqlite,
+    resolver_caminho_banco,
+)
 
 
 class DashboardService:
@@ -69,29 +73,16 @@ class DashboardService:
         self,
         caminho_banco: str | Path | None = None
     ):
-        raiz_projeto = Path(__file__).resolve().parents[2]
-
-        if caminho_banco is None:
-            caminho_banco = (
-                raiz_projeto
-                / "data"
-                / "arbohub.db"
-            )
-
-        self.caminho_banco = Path(caminho_banco)
-        self.caminho_banco.parent.mkdir(
-            parents=True,
-            exist_ok=True
+        self.caminho_banco = resolver_caminho_banco(
+            caminho_banco
         )
 
         self._garantir_estrutura()
 
-    def conectar(self) -> sqlite3.Connection:
-        conexao = sqlite3.connect(
+    def conectar(self):
+        return conectar_sqlite(
             self.caminho_banco
         )
-        conexao.row_factory = sqlite3.Row
-        return conexao
 
     # ------------------------------------------------------------------
     # Estrutura e compatibilidade

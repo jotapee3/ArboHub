@@ -11,6 +11,13 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from app.core.database import (
+    conectar_sqlite,
+    obter_caminho_banco_na_raiz,
+    obter_caminho_banco_padrao,
+    obter_raiz_projeto,
+    resolver_caminho_banco,
+)
 from app.services.arquivos_exportacao_dbf_service import (
     ArquivosExportacaoDbfService
 )
@@ -92,10 +99,10 @@ class ManutencaoService:
         arquivos_service:
             ArquivosExportacaoDbfService | None = None
     ):
+        raiz_personalizada = raiz_projeto is not None
+
         if raiz_projeto is None:
-            raiz_projeto = Path(
-                __file__
-            ).resolve().parents[2]
+            raiz_projeto = obter_raiz_projeto()
 
         self.raiz_projeto = Path(
             raiz_projeto
@@ -103,14 +110,16 @@ class ManutencaoService:
 
         if caminho_banco is None:
             caminho_banco = (
-                self.raiz_projeto
-                / "data"
-                / "arbohub.db"
+                obter_caminho_banco_na_raiz(
+                    self.raiz_projeto
+                )
+                if raiz_personalizada
+                else obter_caminho_banco_padrao()
             )
 
-        self.caminho_banco = Path(
+        self.caminho_banco = resolver_caminho_banco(
             caminho_banco
-        ).expanduser().resolve()
+        )
 
         self.arquivos_service = (
             arquivos_service
@@ -461,16 +470,12 @@ class ManutencaoService:
     # Banco de dados
     # ------------------------------------------------------------------
 
-    def _conectar(self) -> sqlite3.Connection:
-        conexao = sqlite3.connect(
+    def _conectar(self):
+        return conectar_sqlite(
             self.caminho_banco,
-            timeout=10
+            timeout=10,
+            chaves_estrangeiras=True,
         )
-        conexao.row_factory = sqlite3.Row
-        conexao.execute(
-            "PRAGMA foreign_keys = ON"
-        )
-        return conexao
 
     def _criar_backup_sqlite(
         self,
@@ -482,8 +487,9 @@ class ManutencaoService:
         )
 
         with self._conectar() as origem:
-            with sqlite3.connect(
-                destino
+            with conectar_sqlite(
+                destino,
+                timeout=10,
             ) as backup:
                 origem.backup(
                     backup

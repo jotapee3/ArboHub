@@ -7,6 +7,7 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
+from app.core.database import obter_caminho_banco_padrao
 from app.gui.components.arbohub_dialog import (
     mostrar_dialogo_arbohub,
     solicitar_confirmacao_arbohub
@@ -3835,10 +3836,6 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             weight=1
         )
 
-        raiz_projeto = Path(
-            __file__
-        ).resolve().parents[3]
-
         informacoes = (
             (
                 "Aplicativo",
@@ -3861,9 +3858,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             (
                 "Banco operacional",
                 str(
-                    raiz_projeto
-                    / "data"
-                    / "arbohub.db"
+                    obter_caminho_banco_padrao()
                 )
             )
         )
