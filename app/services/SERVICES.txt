@@ -1,9 +1,0 @@
-services
-
-Regras de negócio.
-
-Exemplo:
-
-Quando o usuário clicar em "Baixar Dengue", o botão chamará um Service.
-
-Esse Service decide o que fazer.

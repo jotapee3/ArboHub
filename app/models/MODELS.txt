@@ -1,9 +1,0 @@
-models
-
-Objetos do sistema.
-
-Por exemplo:
-
-Usuário
-Configuração
-Download
