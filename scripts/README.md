@@ -13,6 +13,10 @@ Esta pasta contém diagnósticos e testes manuais criados durante o desenvolvime
 
 ## Categorias
 
+### Verificação local
+
+- `verificar_ambiente.py`: confere Python, versões dos pacotes e presença do Chromium sem acessar os portais.
+
 ### Diagnóstico do SINAN
 
 - `diagnosticar_tempo_criterio_obito.py`;

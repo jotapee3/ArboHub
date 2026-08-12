@@ -9,16 +9,18 @@
 - fechamento garantido das conexões;
 - migração não destrutiva do banco para o perfil local do Windows;
 - preservação do banco legado;
+- registro do ambiente validado e separação das dependências;
+- verificação local do Python, pacotes e Chromium;
 - documentação da arquitetura, instalação, segurança e recuperação.
 
 ## Próximas etapas recomendadas
 
-### 1. Reprodutibilidade das dependências
+### 1. Validar a reprodução das dependências
 
-- registrar as versões efetivamente validadas;
-- separar dependências de execução e desenvolvimento;
-- testar instalação em um ambiente virtual limpo;
-- confirmar compatibilidade entre Python, CustomTkinter e Playwright.
+- criar um ambiente virtual limpo usando `requirements.lock.txt`;
+- executar o verificador e os testes nesse ambiente;
+- registrar qualquer diferença específica do computador institucional;
+- definir quando e como o arquivo fechado poderá ser atualizado.
 
 ### 2. Distribuição para Windows
 

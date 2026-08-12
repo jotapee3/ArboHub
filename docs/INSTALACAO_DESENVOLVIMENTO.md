@@ -35,17 +35,27 @@ Interrompa a atualização se houver alterações locais não reconhecidas.
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.lock.txt
 python -m playwright install chromium
+python scripts/verificar_ambiente.py
 ```
 
-O último comando instala o navegador controlado pelo Playwright. A presença do Chrome ou Edge comum não substitui necessariamente essa etapa.
+O comando `python -m playwright install chromium` instala o navegador controlado pelo Playwright. A presença do Chrome ou Edge comum não substitui necessariamente essa etapa.
+
+Os arquivos de dependência têm finalidades diferentes:
+
+- `requirements.txt`: bibliotecas diretas necessárias ao aplicativo;
+- `requirements-dev.txt`: bibliotecas diretas do aplicativo e do desenvolvimento;
+- `requirements.lock.txt`: fotografia exata do ambiente validado, incluindo dependências transitivas.
+
+Para reproduzir o ambiente atual, use o arquivo `requirements.lock.txt`. Consulte [Dependências](DEPENDENCIAS.md) antes de atualizar qualquer versão.
 
 ## Validar antes da primeira abertura
 
 ```powershell
 python -m compileall -q app tests
 python -m unittest discover -s tests -p "test_*.py" -v
+python scripts/verificar_ambiente.py
 git status --short
 ```
 

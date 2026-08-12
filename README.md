@@ -36,8 +36,9 @@ No PowerShell, a partir da raiz do projeto:
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.lock.txt
 python -m playwright install chromium
+python scripts/verificar_ambiente.py
 ```
 
 Para abrir o aplicativo:
@@ -78,6 +79,7 @@ Uma instalação antiga pode manter `data\arbohub.db` como cópia de recuperaç�
 - [Instalação para desenvolvimento](docs/INSTALACAO_DESENVOLVIMENTO.md)
 - [Segurança e dados](docs/SEGURANCA_E_DADOS.md)
 - [Backup e recuperação](docs/BACKUP_E_RECUPERACAO.md)
+- [Dependências](docs/DEPENDENCIAS.md)
 - [Próximas etapas](docs/ROADMAP.md)
 - [Scripts auxiliares](scripts/README.md)
 
