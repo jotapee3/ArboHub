@@ -8,6 +8,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 from app.core.database import obter_caminho_banco_padrao
+from app.core.versao import ROTULO_VERSAO_ARBOHUB
 from app.gui.components.arbohub_dialog import (
     mostrar_dialogo_arbohub,
     solicitar_confirmacao_arbohub
@@ -27,9 +28,6 @@ from app.services.notificacoes_service import (
     NotificacoesService
 )
 from app.services.suporte_service import (
-    EMAIL_SUPORTE,
-    RESPONSAVEL_SUPORTE,
-    ROTULO_VERSAO_ARBOHUB,
     SuporteService
 )
 from app.services.usuario_windows_service import (
@@ -3687,7 +3685,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             contato,
-            text=RESPONSAVEL_SUPORTE,
+            text="Solicitação de suporte",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=13,
@@ -3705,7 +3703,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             contato,
-            text="Responsável pelo ArboHub",
+            text="Canal institucional configurado para supervisão",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=10
@@ -3722,7 +3720,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             contato,
-            text=EMAIL_SUPORTE,
+            text="Destino: e-mail institucional da supervisão",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=11
@@ -3739,7 +3737,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         ctk.CTkButton(
             contato,
-            text="Entrar em contato",
+            text="Preparar e-mail",
             command=self.abrir_solicitacao_suporte,
             width=160,
             height=36,
@@ -3765,8 +3763,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
             contato,
             text=(
                 "A mensagem será aberta no aplicativo de e-mail "
-                "do Windows com a versão do ArboHub e o usuário "
-                "desta instalação preenchidos automaticamente."
+                "do Windows com apenas a versão do ArboHub. Nenhuma "
+                "identificação da conta do Windows será incluída. "
+                "Revise o conteúdo antes de enviar."
             ),
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -3788,23 +3787,19 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
     def abrir_solicitacao_suporte(self):
         try:
             self.suporte_service.abrir_solicitacao(
-                nome_usuario=(
-                    self.identidade_windows.nome_exibicao
-                ),
-                conta_usuario=(
-                    self.identidade_windows.conta
-                )
+                destinatario=self.supervisora_email_var.get(),
+                nome_destinatario=self.supervisora_nome_var.get(),
             )
         except Exception as erro:
             mostrar_dialogo_arbohub(
                 master=self.winfo_toplevel(),
-                titulo="Não foi possível abrir o e-mail",
+                titulo="E-mail institucional necessário",
                 mensagem=(
-                    "Abra uma nova mensagem manualmente para:\n"
-                    f"{EMAIL_SUPORTE}\n\n"
-                    f"Detalhe: {erro}"
+                    f"{erro}\n\n"
+                    "Preencha o e-mail em Notificações e supervisão "
+                    "e salve as alterações antes de tentar novamente."
                 ),
-                tipo="erro",
+                tipo="aviso",
                 texto_botao="Entendi"
             )
 
@@ -4930,7 +4925,7 @@ class ConfirmacaoResetBasesDialog(ctk.CTkToplevel):
         )
 
         self.campo_frase = ctk.CTkEntry(
-            conteudo,           
+            conteudo,
             textvariable=self.frase_var,
             height=38,
             corner_radius=7,

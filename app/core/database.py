@@ -154,19 +154,27 @@ def conectar_sqlite(
 
     caminho = resolver_caminho_banco(caminho_banco)
 
-    if not somente_leitura:
-        caminho.parent.mkdir(parents=True, exist_ok=True)
+    if somente_leitura:
+        if not caminho.is_file():
+            raise FileNotFoundError(
+                f"O banco SQLite não foi encontrado: {caminho}"
+            )
 
-    conexao = sqlite3.connect(caminho, timeout=timeout)
+        uri_banco = f"{caminho.as_uri()}?mode=ro"
+        conexao = sqlite3.connect(
+            uri_banco,
+            uri=True,
+            timeout=timeout,
+        )
+    else:
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        conexao = sqlite3.connect(caminho, timeout=timeout)
 
     try:
         conexao.row_factory = sqlite3.Row
 
         if chaves_estrangeiras:
             conexao.execute("PRAGMA foreign_keys = ON")
-
-        if somente_leitura:
-            conexao.execute("PRAGMA query_only = ON")
 
         with conexao:
             yield conexao

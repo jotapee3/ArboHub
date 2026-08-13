@@ -2,6 +2,7 @@
 .venv/
 venv/
 .venv-build/
+.venv-audit/
 
 # Cache do Python
 __pycache__/
@@ -31,6 +32,15 @@ dados/
 *.xlsx
 *.xls
 *.dbf
+*.zip
+*.7z
+*.rar
+
+# Chaves e certificados privados
+*.key
+*.pem
+*.p12
+*.pfx
 
 # Arquivos temporários
 *.tmp

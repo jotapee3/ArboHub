@@ -130,6 +130,39 @@ class DatabaseTestCase(unittest.TestCase):
             with self.assertRaises(sqlite3.ProgrammingError):
                 conexao.execute("SELECT 1")
 
+    def test_somente_leitura_nao_cria_banco_ausente(self):
+        with tempfile.TemporaryDirectory() as temporario:
+            banco = Path(temporario) / "ausente.db"
+
+            with self.assertRaises(FileNotFoundError):
+                with conectar_sqlite(
+                    banco,
+                    somente_leitura=True,
+                ):
+                    pass
+
+            self.assertFalse(banco.exists())
+
+    def test_somente_leitura_bloqueia_gravacao(self):
+        with tempfile.TemporaryDirectory() as temporario:
+            banco = Path(temporario) / "somente_leitura.db"
+            self._criar_banco(banco, "preservado")
+
+            with conectar_sqlite(
+                banco,
+                somente_leitura=True,
+            ) as conexao:
+                with self.assertRaises(sqlite3.OperationalError):
+                    conexao.execute(
+                        "UPDATE estado SET valor = ?",
+                        ("alterado",),
+                    )
+
+            self.assertEqual(
+                self._ler_valor(banco),
+                "preservado",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

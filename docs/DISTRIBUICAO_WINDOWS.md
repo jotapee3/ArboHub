@@ -1,6 +1,7 @@
 # Distribuição para Windows
 
-Esta etapa gera um protótipo interno do ArboHub em formato `onedir`.
+Esta etapa gera um protótipo interno do ArboHub em formato `onedir`
+para Windows 11 x64.
 O computador de destino não precisa possuir Python nem instalar o
 Chromium separadamente, mas deve receber a pasta completa da
 distribuição.
@@ -8,6 +9,9 @@ distribuição.
 O protótipo ainda não é um instalador oficial. Ele mantém o console
 visível para facilitar o diagnóstico no primeiro teste em outro
 computador.
+
+Antes de qualquer teste externo, siga o documento de
+[Homologação de segurança](HOMOLOGACAO_SEGURANCA.md).
 
 ## Conteúdo da distribuição
 
@@ -41,6 +45,10 @@ O script:
 7. cria `dist\ArboHub-v0.6-windows-x64.zip`;
 8. informa o hash SHA-256 do ZIP.
 
+O build não usa UPX. A ausência de compactação adicional torna o
+conteúdo mais previsível para análise, embora não substitua assinatura
+digital nem aprovação do antivírus.
+
 O primeiro build pode demorar e consumir centenas de megabytes. Não
 interrompa enquanto houver download, análise ou compactação em curso.
 
@@ -58,14 +66,17 @@ Não execute uma rotina real apenas para testar o pacote.
 
 ## Validar em outro computador
 
+Somente faça esta etapa depois da autorização da TI:
+
 1. copie apenas o ZIP gerado por um meio institucional autorizado;
 2. confira o hash SHA-256 antes de extrair;
 3. extraia a pasta completa em um local autorizado;
-4. execute primeiro `ArboHub.exe --verificar-distribuicao`;
-5. abra o ArboHub sem privilégios administrativos;
-6. revise os caminhos em **Configurações**;
-7. confirme em **Sobre** o banco localizado em `%LOCALAPPDATA%`;
-8. valide SINAN e GAL somente com autorização e acompanhamento.
+4. use um caminho estável aprovado, não `%TEMP%`;
+5. execute primeiro `ArboHub.exe --verificar-distribuicao`;
+6. abra o ArboHub sem privilégios administrativos;
+7. revise os caminhos em **Configurações**;
+8. confirme em **Sobre** o banco localizado em `%LOCALAPPDATA%`;
+9. valide SINAN e GAL somente com autorização e acompanhamento.
 
 Não copie somente `ArboHub.exe`: as dependências e o Chromium ficam na
 pasta `_internal` ao lado dele.
@@ -77,6 +88,8 @@ pasta `_internal` ao lado dele.
 - o console permanece visível;
 - a compatibilidade deve ser confirmada no Windows institucional;
 - qualquer alerta do antivírus deve ser analisado, nunca contornado;
+- o GAL mantém uma exceção para erro de certificado que bloqueia a
+  homologação até decisão institucional;
 - nenhuma distribuição ampliada deve ocorrer antes da revisão de
   segurança e da autorização do setor.
 

@@ -43,6 +43,12 @@ fazem parte do uso normal do código-fonte.
 
 Um arquivo fechado por versão reduz alterações inesperadas, mas não fornece, sozinho, verificação criptográfica dos pacotes. A etapa de distribuição deverá avaliar hashes, origem dos artefatos e processo institucional de atualização.
 
+Antes de um build destinado a outro computador, execute também a
+auditoria e gere o SBOM conforme
+[Homologação de segurança](HOMOLOGACAO_SEGURANCA.md). O resultado é uma
+evidência datada: a ausência de alertas hoje não garante ausência de
+vulnerabilidades descobertas futuramente.
+
 ## Instalação reproduzível
 
 Em um ambiente virtual vazio:

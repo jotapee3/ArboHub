@@ -71,6 +71,17 @@ class DependenciasTestCase(unittest.TestCase):
             "2026.6",
         )
 
+    def test_build_nao_solicita_compactacao_upx(self):
+        especificacao = (
+            RAIZ_PROJETO / "ArboHub.spec"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("upx=True", especificacao)
+        self.assertEqual(
+            especificacao.count("upx=False"),
+            2,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

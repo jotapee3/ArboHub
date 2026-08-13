@@ -17,11 +17,11 @@ O ArboHub não é um prontuário e não deve armazenar conteúdo clínico no ban
 
 ## Situação do projeto
 
-O projeto está em estabilização arquitetural. Os fluxos SINAN e GAL estão implementados e a distribuição `onedir` para Windows está em preparação para teste interno. Ainda não existe um instalador oficial.
+O projeto está em estabilização arquitetural. Os fluxos SINAN e GAL estão implementados e existe um protótipo `onedir` para revisão interna. O executável ainda não é assinado, não existe instalador oficial e a distribuição depende de homologação institucional.
 
 ## Requisitos para desenvolvimento
 
-- Windows 10 ou 11;
+- Windows 11 x64 ou Windows Server compatível e suportado pelo Playwright;
 - Python 3.14 no ambiente atualmente validado;
 - acesso autorizado aos portais SINAN e GAL;
 - permissão para os diretórios operacionais configurados;
@@ -55,7 +55,7 @@ python dev.py
 
 ## Testes
 
-Os testes automatizados atuais verificam o processamento semanal do GAL, a independência dos estados SINAN/GAL e o ciclo de vida e a migração segura do SQLite.
+Os testes automatizados verificam o processamento semanal do GAL, a independência dos estados SINAN/GAL, SQLite, dependências, recursos empacotados, ícones, diálogos, destinos oficiais e minimização do e-mail de suporte.
 
 ```powershell
 python -m compileall -q app tests
@@ -81,6 +81,7 @@ Uma instalação antiga pode manter `data\arbohub.db` como cópia de recuperaç�
 - [Backup e recuperação](docs/BACKUP_E_RECUPERACAO.md)
 - [Dependências](docs/DEPENDENCIAS.md)
 - [Distribuição para Windows](docs/DISTRIBUICAO_WINDOWS.md)
+- [Homologação de segurança](docs/HOMOLOGACAO_SEGURANCA.md)
 - [Próximas etapas](docs/ROADMAP.md)
 - [Scripts auxiliares](scripts/README.md)
 

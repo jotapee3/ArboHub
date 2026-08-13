@@ -3,6 +3,7 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import Image
 
+from app.core.versao import ROTULO_VERSAO_ARBOHUB
 from app.gui.themes.colors import Colors
 
 
@@ -75,7 +76,7 @@ class Sidebar(ctk.CTkFrame):
             fg_color="transparent",
             border_width=0
         )
-        
+
         container_icone.pack(side="left")
         container_icone.pack_propagate(False)
 
@@ -375,7 +376,7 @@ class Sidebar(ctk.CTkFrame):
 
         versao = ctk.CTkLabel(
             rodape,
-            text="ArboHub v0.5",
+            text=ROTULO_VERSAO_ARBOHUB,
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=10

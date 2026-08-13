@@ -14,20 +14,28 @@
 - documentação da arquitetura, instalação, segurança e recuperação.
 - reprodução completa do ambiente em uma máquina virtual limpa;
 - preparação do build `onedir` com Chromium incluído.
+- ícones adaptativos e verificação interna da distribuição;
+- primeira revisão de segurança do código-fonte;
+- proteção real do modo somente leitura do SQLite;
+- validação HTTPS/hostname antes da autenticação;
+- minimização do e-mail de suporte;
+- documentação do processo de homologação.
 
 ## Próximas etapas recomendadas
 
 ### 1. Distribuição para Windows
 
-- criar executável de teste;
-- incluir ícones e recursos necessários;
-- validar o Chromium incluído no pacote;
+- gerar novo executável a partir do commit aprovado;
+- executar auditoria de dependências e gerar SBOM;
+- obter análise da TI para o alerta do antivírus;
+- definir assinatura institucional ou implantação gerenciada;
 - testar em um segundo computador sem ambiente Python preparado;
 - validar atualização sem apagar `%LOCALAPPDATA%\ArboHub`.
 
 ### 2. Segurança operacional
 
-- revisar o uso de `ignore_https_errors=True` no GAL;
+- resolver ou aprovar formalmente o uso de
+  `ignore_https_errors=True` no GAL;
 - definir backup institucional autorizado;
 - revisar permissões dos diretórios de DBF, CSV e ZIP;
 - realizar revisão de segurança antes de uso ampliado;

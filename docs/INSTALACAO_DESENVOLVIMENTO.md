@@ -4,7 +4,8 @@ Este procedimento é destinado ao desenvolvimento e à validação interna. A di
 
 ## Pré-requisitos
 
-- Windows 10 ou 11 atualizado;
+- Windows 11 x64 ou Windows Server compatível e suportado pelo
+  Playwright;
 - Python 3.14 no ambiente atualmente validado;
 - Git;
 - acesso de rede autorizado aos portais utilizados;

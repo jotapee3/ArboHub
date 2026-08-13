@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from time import monotonic
 from typing import Callable, Iterable
-from urllib.parse import urlparse
 
 from playwright.sync_api import (
     Browser,
@@ -14,6 +13,9 @@ from playwright.sync_api import (
     sync_playwright
 )
 
+from app.core.seguranca_urls import (
+    url_https_corresponde_dominio,
+)
 from app.services.configuracoes_service import (
     ConfiguracoesService
 )
@@ -100,6 +102,13 @@ class NavegadorSinan:
             wait_until="domcontentloaded",
             timeout=60_000
         )
+
+        if not self._pagina_oficial_do_sinan():
+            self.fechar()
+            raise RuntimeError(
+                "O navegador não abriu o endereço HTTPS oficial "
+                "do SINAN. A autenticação foi interrompida."
+            )
 
         if self.usar_login_automatico:
             self._tentar_login_automatico_configurado()
@@ -483,15 +492,9 @@ class NavegadorSinan:
         if self.pagina is None:
             return False
 
-        endereco = urlparse(
-            self.pagina.url
-        )
-
-        return (
-            endereco.scheme.casefold() == "https"
-            and (
-                endereco.hostname or ""
-            ).casefold() == self.DOMINIO_OFICIAL
+        return url_https_corresponde_dominio(
+            self.pagina.url,
+            self.DOMINIO_OFICIAL,
         )
 
     def _preparar_fallback_manual(self) -> None:

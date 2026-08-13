@@ -15,6 +15,10 @@ from playwright.sync_api import (
     sync_playwright
 )
 
+from app.core.seguranca_urls import (
+    url_https_corresponde_dominio,
+)
+
 
 class NavegadorGal:
     """Abre o GAL sem persistir sessao, credenciais ou rastreamento."""
@@ -98,8 +102,10 @@ class NavegadorGal:
             raise
 
         if not self._pagina_em_dominio_oficial(self.pagina):
+            self.fechar()
             raise RuntimeError(
-                "O navegador nao abriu o dominio oficial do GAL."
+                "O navegador não abriu o endereço HTTPS oficial "
+                "do GAL. A autenticação foi interrompida."
             )
 
         return self.pagina
@@ -216,9 +222,7 @@ class NavegadorGal:
         self._pasta_downloads_temporaria = None
 
     def _pagina_em_dominio_oficial(self, pagina: Page) -> bool:
-        try:
-            dominio = urlparse(pagina.url).hostname
-        except Exception:
-            return False
-
-        return dominio == self.DOMINIO_OFICIAL
+        return url_https_corresponde_dominio(
+            pagina.url,
+            self.DOMINIO_OFICIAL,
+        )

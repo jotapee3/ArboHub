@@ -27,6 +27,8 @@ A interface não deve acessar diretamente o SQLite nem controlar detalhes do nav
 | `app/automation/gal/` | navegação, exportação e obtenção do relatório do GAL |
 | `app/core/caminhos.py` | caminhos locais compartilhados do aplicativo |
 | `app/core/database.py` | caminho, migração, abertura e fechamento do SQLite |
+| `app/core/seguranca_urls.py` | validação de HTTPS e hostname dos portais |
+| `app/core/versao.py` | identificação única da versão exibida |
 | `assets/sistemas/` | marcas visuais do SINAN e GAL usadas pela interface |
 | `tests/` | testes automatizados sem acesso aos portais reais |
 | `scripts/` | diagnósticos manuais de desenvolvimento; não fazem parte do uso comum |
@@ -70,7 +72,10 @@ Páginas atuais:
 - localização de `%LOCALAPPDATA%\ArboHub`;
 - migração não destrutiva do banco legado;
 - conexão SQLite com fechamento garantido;
-- ativação opcional de chaves estrangeiras e modo somente leitura.
+- ativação opcional de chaves estrangeiras e modo SQLite realmente
+  somente leitura;
+- seleção do Chromium interno quando a aplicação está empacotada;
+- validação dos endereços HTTPS oficiais antes da autenticação.
 
 ## Inicialização e migração
 
@@ -113,6 +118,10 @@ Uma nova aba deve respeitar a mesma divisão:
 
 - não existe servidor ou sincronização entre computadores;
 - o SQLite é local e não possui criptografia própria;
-- a instalação ainda depende de Python e Playwright configurados manualmente;
-- as versões das dependências ainda não estão fixadas;
+- o desenvolvimento depende de Python e Playwright, mas o protótipo
+  `onedir` inclui o interpretador, as bibliotecas e o Chromium;
+- as versões estão fixadas para reprodução, porém o arquivo fechado
+  ainda não possui hashes de todos os pacotes;
+- o executável ainda não possui assinatura digital;
+- o GAL ainda ignora erros do certificado HTTPS e exige decisão da TI;
 - os scripts auxiliares não são uma API pública e podem depender do estado dos portais.

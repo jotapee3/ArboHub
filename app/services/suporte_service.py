@@ -4,10 +4,8 @@ import os
 import webbrowser
 from urllib.parse import quote, urlencode
 
+from app.core.versao import ROTULO_VERSAO_ARBOHUB
 
-RESPONSAVEL_SUPORTE = "João Paulo Velho"
-EMAIL_SUPORTE = "cevs.joaov@gmail.com"
-ROTULO_VERSAO_ARBOHUB = "ArboHub v0.6"
 ASSUNTO_SUPORTE = "ArboHub — Solicitação de suporte"
 
 
@@ -16,28 +14,31 @@ class SuporteService:
 
     def montar_link_email(
         self,
-        nome_usuario: str,
-        conta_usuario: str
+        destinatario: str,
+        nome_destinatario: str = "",
     ) -> str:
-        nome = (
-            str(nome_usuario).strip()
-            or "Usuário não identificado"
-        )
-        conta = (
-            str(conta_usuario).strip()
-            or "Conta não identificada"
-        )
+        email = str(destinatario).strip().casefold()
+
+        if not self._email_valido(email):
+            raise ValueError(
+                "Configure um e-mail institucional válido para a "
+                "supervisão antes de preparar a solicitação."
+            )
+
+        nome = str(nome_destinatario).strip()
+        saudacao = f"Olá, {nome}." if nome else "Olá."
 
         corpo = (
-            f"Olá, {RESPONSAVEL_SUPORTE}.\n\n"
+            f"{saudacao}\n\n"
             "Gostaria de solicitar suporte no ArboHub.\n\n"
             "Descreva abaixo o problema, a mudança ou a nova "
             "implementação desejada:\n\n\n"
             "---\n"
             "Informações automáticas do ArboHub\n"
-            f"Versão: {ROTULO_VERSAO_ARBOHUB}\n"
-            f"Usuário do Windows: {nome}\n"
-            f"Conta do Windows: {conta}"
+            f"Versão: {ROTULO_VERSAO_ARBOHUB}\n\n"
+            "Antes de enviar, remova dados de pacientes, senhas, "
+            "números de solicitação, caminhos internos e capturas "
+            "dos portais."
         )
 
         consulta = urlencode(
@@ -47,16 +48,16 @@ class SuporteService:
             },
             quote_via=quote
         )
-        return f"mailto:{EMAIL_SUPORTE}?{consulta}"
+        return f"mailto:{email}?{consulta}"
 
     def abrir_solicitacao(
         self,
-        nome_usuario: str,
-        conta_usuario: str
+        destinatario: str,
+        nome_destinatario: str = "",
     ) -> None:
         link = self.montar_link_email(
-            nome_usuario=nome_usuario,
-            conta_usuario=conta_usuario
+            destinatario=destinatario,
+            nome_destinatario=nome_destinatario,
         )
 
         if hasattr(os, "startfile"):
@@ -68,3 +69,17 @@ class SuporteService:
                 "Nenhum aplicativo de e-mail respondeu à "
                 "solicitação de abertura."
             )
+
+    @staticmethod
+    def _email_valido(email: str) -> bool:
+        if " " in email or email.count("@") != 1:
+            return False
+
+        usuario, dominio = email.rsplit("@", 1)
+        return bool(
+            usuario
+            and dominio
+            and "." in dominio
+            and not dominio.startswith(".")
+            and not dominio.endswith(".")
+        )

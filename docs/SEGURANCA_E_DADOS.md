@@ -65,7 +65,9 @@ Se aparecer `.db`, `.dbf`, `.csv`, `.zip`, `.env`, log, captura de tela de porta
 
 ## Portais e rede
 
-As automações acessam somente os endereços definidos para SINAN e GAL no código. O navegador é visível para permitir supervisão humana. O GAL usa `ignore_https_errors=True` no contexto automatizado; essa exceção deve ser revista com a infraestrutura institucional antes da distribuição final.
+As automações acessam somente os endereços definidos para SINAN e GAL no código. Antes da autenticação, o ArboHub exige HTTPS e correspondência exata do hostname oficial. O navegador é visível para permitir supervisão humana.
+
+O GAL ainda usa `ignore_https_errors=True` no contexto automatizado. A validação do hostname reduz redirecionamentos indevidos, mas não substitui uma cadeia de certificado confiável. Essa exceção é um bloqueio de homologação e deve ser corrigida ou aprovada formalmente pela infraestrutura institucional antes da distribuição.
 
 ## Compartilhamento entre computadores
 
@@ -92,4 +94,4 @@ Antes de implementar esse compartilhamento serão necessários, no mínimo:
 
 ## Comunicação de suporte
 
-Ao relatar problemas, informe versão, módulo, horário e mensagem de erro. Remova dados de pacientes, senhas, números de solicitação, caminhos internos e capturas de portais, salvo quando houver canal institucional explicitamente autorizado.
+Ao relatar problemas, use somente o e-mail institucional configurado para a supervisão. O ArboHub prepara a mensagem com a versão, mas não inclui automaticamente a identidade da conta do Windows e não envia nada sozinho. Remova dados de pacientes, senhas, números de solicitação, caminhos internos e capturas de portais, salvo quando houver canal institucional explicitamente autorizado.
