@@ -5,10 +5,18 @@
 # ArboHub - Vigilância e Automação em Saúde 🦟
 
 <p>
-  <img alt="Versão v0.6" src="https://img.shields.io/badge/VERSÃO-v0.6-2563EB?style=for-the-badge">
-  <img alt="Python 3.14" src="https://img.shields.io/badge/PYTHON-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white">
-  <img alt="Windows" src="https://img.shields.io/badge/PLATAFORMA-WINDOWS-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
-  <img alt="Em desenvolvimento" src="https://img.shields.io/badge/STATUS-EM_DESENVOLVIMENTO-F59E0B?style=for-the-badge">
+  <a href="#status-do-projeto">
+    <img alt="Versão v0.6" src="https://img.shields.io/badge/VERSÃO-v0.6-2563EB?style=for-the-badge">
+  </a>
+  <a href="#tecnologias">
+    <img alt="Python 3.14" src="https://img.shields.io/badge/PYTHON-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white">
+  </a>
+  <a href="#requisitos">
+    <img alt="Windows" src="https://img.shields.io/badge/PLATAFORMA-WINDOWS-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
+  </a>
+  <a href="#status-do-projeto">
+    <img alt="Em desenvolvimento" src="https://img.shields.io/badge/STATUS-EM_DESENVOLVIMENTO-F59E0B?style=for-the-badge">
+  </a>
 </p>
 
 **ArboHub** é uma aplicação desktop em Python criada para apoiar, organizar e automatizar rotinas autorizadas de vigilância em saúde. Em uma única interface, o programa reúne o acompanhamento diário das atividades e fluxos relacionados ao **SINAN** e ao **GAL**.
@@ -44,6 +52,8 @@ Do painel de rotina à organização dos arquivos exportados, o ArboHub busca to
 - **Segurança desde a arquitetura:** mantém credenciais protegidas pelo Windows e evita armazenar dados clínicos no banco operacional.
 - **Pronto para crescer:** estrutura modular preparada para receber novos fluxos e módulos de vigilância no futuro.
 
+<a id="requisitos"></a>
+
 ## Requisitos 💻
 
 ### Para executar a versão portátil
@@ -66,9 +76,6 @@ A versão portátil inclui o ambiente necessário para a aplicação e não exig
 ## Instalação e execução 📥
 
 <p>
-  <a href="https://github.com/jotapee3/ArboHub/releases">
-    <img alt="Releases" src="https://img.shields.io/badge/BAIXAR-GITHUB_RELEASES-181717?style=for-the-badge&logo=github&logoColor=white">
-  </a>
   <a href="docs/DISTRIBUICAO_WINDOWS.md">
     <img alt="Instruções para Windows" src="https://img.shields.io/badge/GUIA-WINDOWS-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
   </a>
@@ -192,6 +199,8 @@ O ArboHub foi estruturado para trabalhar com metadados de rotina e arquivos nos 
 
 O `.gitignore` bloqueia bancos, CSVs, DBFs, ZIPs operacionais, credenciais, logs, rastros de navegador, capturas e chaves privadas. Mesmo assim, toda publicação deve ser revisada antes do commit.
 
+<a id="tecnologias"></a>
+
 ## Tecnologias e estrutura 🧩
 
 | Tecnologia | Uso no ArboHub |
@@ -218,6 +227,8 @@ ArboHub/
 ├── main.py             # Entrada principal
 └── requirements*.txt   # Dependências do projeto
 ```
+
+<a id="status-do-projeto"></a>
 
 ## Situação do desenvolvimento e próximos passos 🚧
 
