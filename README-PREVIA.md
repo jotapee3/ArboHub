@@ -4,6 +4,13 @@
 
 # ArboHub - Vigilância e Automação em Saúde 🦟
 
+<p>
+  <img alt="Versão v0.6" src="https://img.shields.io/badge/VERSÃO-v0.6-2563EB?style=for-the-badge">
+  <img alt="Python 3.14" src="https://img.shields.io/badge/PYTHON-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/PLATAFORMA-WINDOWS-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
+  <img alt="Em desenvolvimento" src="https://img.shields.io/badge/STATUS-EM_DESENVOLVIMENTO-F59E0B?style=for-the-badge">
+</p>
+
 **ArboHub** é uma aplicação desktop em Python criada para apoiar, organizar e automatizar rotinas autorizadas de vigilância em saúde. Em uma única interface, o programa reúne o acompanhamento diário das atividades e fluxos relacionados ao **SINAN** e ao **GAL**.
 
 Do painel de rotina à organização dos arquivos exportados, o ArboHub busca tornar processos repetitivos mais claros, rastreáveis e seguros, mantendo o operador no controle de cada etapa.
@@ -26,6 +33,16 @@ Do painel de rotina à organização dos arquivos exportados, o ArboHub busca to
 <p align="center">
   <img src="docs/images/arbohub-preview.png" alt="Tela inicial do ArboHub" width="100%">
 </p>
+
+## Destaques do ArboHub ✨
+
+- **Criado a partir de uma necessidade real:** transforma um fluxo operacional fragmentado em uma experiência única e organizada.
+- **SINAN e GAL no mesmo lugar:** centraliza o acompanhamento das principais rotinas sem substituir os sistemas oficiais.
+- **Automação com supervisão humana:** reduz tarefas repetitivas e preserva login, CAPTCHA e decisões críticas sob responsabilidade do operador.
+- **Progresso fácil de acompanhar:** apresenta atividades previstas, pendências, etapas concluídas, frequência e histórico local.
+- **Arquivos organizados e padronizados:** valida DBFs, CSVs e ZIPs antes de atualizar os destinos configurados.
+- **Segurança desde a arquitetura:** mantém credenciais protegidas pelo Windows e evita armazenar dados clínicos no banco operacional.
+- **Pronto para crescer:** estrutura modular preparada para receber novos fluxos e módulos de vigilância no futuro.
 
 ## Requisitos 💻
 
@@ -233,7 +250,7 @@ O projeto ainda não possui uma licença pública de uso e redistribuição. A p
 
 ## Autor e contato 👤
 
-Desenvolvido por **João Paulo da Silveira Velho**, estudante de Informática Biomédica, como projeto aplicado de automação, desenvolvimento de software e tecnologia em saúde.
+Desenvolvido por **João Paulo da Silveira Velho**, estudante do Bacharelado em **Informática Biomédica na Universidade Federal de Ciências da Saúde de Porto Alegre (UFCSPA)**, como projeto aplicado de automação, desenvolvimento de software e tecnologia em saúde.
 
 <p>
   <a href="https://github.com/jotapee3">
@@ -241,5 +258,8 @@ Desenvolvido por **João Paulo da Silveira Velho**, estudante de Informática Bi
   </a>
   <a href="https://github.com/jotapee3/ArboHub/issues">
     <img alt="Sugestões e problemas" src="https://img.shields.io/badge/CONTATO-GITHUB_ISSUES-2563EB?style=for-the-badge&logo=github&logoColor=white">
+  </a>
+  <a href="https://www.linkedin.com/in/joaopaulo.velho/">
+    <img alt="LinkedIn" src="https://img.shields.io/badge/LINKEDIN-JOÃO_PAULO-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white">
   </a>
 </p>
