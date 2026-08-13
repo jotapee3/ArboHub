@@ -29,6 +29,8 @@ class ArboHubDialog(ctk.CTkToplevel):
     LARGURA = 540
     ALTURA_MINIMA = 420
     ALTURA_MAXIMA = 720
+    WRAPLENGTH_INICIAL = 360
+    MARGEM_INTERNA_MENSAGEM = 44
 
     CONFIGURACOES = {
         "informacao": {
@@ -295,7 +297,7 @@ class ArboHubDialog(ctk.CTkToplevel):
             text_color=Colors.TEXT_SECONDARY,
             anchor="nw",
             justify="left",
-            wraplength=455
+            wraplength=self.WRAPLENGTH_INICIAL
         )
         self.label_mensagem.grid(
             row=0,
@@ -401,6 +403,9 @@ class ArboHubDialog(ctk.CTkToplevel):
         try:
             self.update_idletasks()
 
+            self._ajustar_quebra_mensagem()
+            self.update_idletasks()
+
             altura_requerida = (
                 self.cabecalho_dialogo.winfo_reqheight()
                 + self.caixa_mensagem.winfo_reqheight()
@@ -434,6 +439,46 @@ class ArboHubDialog(ctk.CTkToplevel):
                 )
         except Exception:
             pass
+
+    def _ajustar_quebra_mensagem(self):
+        """
+        Ajusta a quebra à largura física disponível na caixa.
+
+        O CustomTkinter aplica a escala da interface também ao
+        ``wraplength``. Como a janela preserva sua largura base, um
+        valor fixo pode ficar maior que a área visível em 110% ou
+        125% e fazer o texto ser recortado no Windows.
+        """
+
+        largura_caixa = self.caixa_mensagem.winfo_width()
+
+        if largura_caixa <= 1:
+            return
+
+        largura_disponivel = max(
+            120,
+            largura_caixa - self.MARGEM_INTERNA_MENSAGEM
+        )
+
+        reverter_escala = getattr(
+            self.label_mensagem,
+            "_reverse_widget_scaling",
+            None
+        )
+
+        if callable(reverter_escala):
+            largura_configurada = reverter_escala(
+                largura_disponivel
+            )
+        else:
+            largura_configurada = largura_disponivel
+
+        self.label_mensagem.configure(
+            wraplength=max(
+                120,
+                int(largura_configurada)
+            )
+        )
 
     def _confirmar(self):
         self.resultado = True
