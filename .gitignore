@@ -1,6 +1,7 @@
 # Ambiente virtual
 .venv/
 venv/
+.venv-build/
 
 # Cache do Python
 __pycache__/
@@ -43,6 +44,8 @@ Thumbs.db
 build/
 dist/
 *.spec
+!ArboHub.spec
+.build-cache/
 
 # Sessões e autenticação do Playwright
 playwright/.auth/

@@ -13,6 +13,9 @@ from app.gui.pages.historico_page import HistoricoPage
 from app.gui.pages.configuracoes_page import ConfiguracoesPage
 from app.gui.themes.colors import Colors
 from app.services.configuracoes_service import ConfiguracoesService
+from app.services.icone_aplicativo_service import (
+    IconeAplicativoService,
+)
 
 
 class MainWindow(ctk.CTk):
@@ -33,21 +36,11 @@ class MainWindow(ctk.CTk):
             Path(__file__).resolve().parent.parent
             / "assets"
         )
-        nome_icone = (
-            "arbohub_light.ico"
-            if Colors.TEMA_ATUAL == "claro"
-            else "arbohub_dark.ico"
-        )
         caminho_icone = (
-            pasta_assets
-            / nome_icone
-        )
-
-        if not caminho_icone.exists():
-            caminho_icone = (
+            IconeAplicativoService().obter_caminho_icone(
                 pasta_assets
-                / "arbohub.ico"
             )
+        )
 
         try:
             self.iconbitmap(

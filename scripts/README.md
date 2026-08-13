@@ -17,6 +17,13 @@ Esta pasta contém diagnósticos e testes manuais criados durante o desenvolvime
 
 - `verificar_ambiente.py`: confere Python, versões dos pacotes e presença do Chromium sem acessar os portais.
 
+### Distribuição Windows
+
+- `construir_executavel.ps1`: cria e verifica o protótipo `onedir`,
+  inclui o Chromium e gera o ZIP com hash SHA-256.
+
+Consulte `docs/DISTRIBUICAO_WINDOWS.md` antes de executar o build.
+
 ### Diagnóstico do SINAN
 
 - `diagnosticar_tempo_criterio_obito.py`;

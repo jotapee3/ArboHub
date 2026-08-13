@@ -17,7 +17,7 @@ O ArboHub não é um prontuário e não deve armazenar conteúdo clínico no ban
 
 ## Situação do projeto
 
-O projeto está em estabilização arquitetural. Os fluxos SINAN e GAL estão implementados, mas a distribuição como executável para outros computadores ainda não foi concluída.
+O projeto está em estabilização arquitetural. Os fluxos SINAN e GAL estão implementados e a distribuição `onedir` para Windows está em preparação para teste interno. Ainda não existe um instalador oficial.
 
 ## Requisitos para desenvolvimento
 
@@ -80,6 +80,7 @@ Uma instalação antiga pode manter `data\arbohub.db` como cópia de recuperaç�
 - [Segurança e dados](docs/SEGURANCA_E_DADOS.md)
 - [Backup e recuperação](docs/BACKUP_E_RECUPERACAO.md)
 - [Dependências](docs/DEPENDENCIAS.md)
+- [Distribuição para Windows](docs/DISTRIBUICAO_WINDOWS.md)
 - [Próximas etapas](docs/ROADMAP.md)
 - [Scripts auxiliares](scripts/README.md)
 

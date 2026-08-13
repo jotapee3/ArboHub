@@ -12,25 +12,20 @@
 - registro do ambiente validado e separação das dependências;
 - verificação local do Python, pacotes e Chromium;
 - documentação da arquitetura, instalação, segurança e recuperação.
+- reprodução completa do ambiente em uma máquina virtual limpa;
+- preparação do build `onedir` com Chromium incluído.
 
 ## Próximas etapas recomendadas
 
-### 1. Validar a reprodução das dependências
-
-- criar um ambiente virtual limpo usando `requirements.lock.txt`;
-- executar o verificador e os testes nesse ambiente;
-- registrar qualquer diferença específica do computador institucional;
-- definir quando e como o arquivo fechado poderá ser atualizado.
-
-### 2. Distribuição para Windows
+### 1. Distribuição para Windows
 
 - criar executável de teste;
 - incluir ícones e recursos necessários;
-- definir como o Chromium do Playwright será instalado ou distribuído;
+- validar o Chromium incluído no pacote;
 - testar em um segundo computador sem ambiente Python preparado;
 - validar atualização sem apagar `%LOCALAPPDATA%\ArboHub`.
 
-### 3. Segurança operacional
+### 2. Segurança operacional
 
 - revisar o uso de `ignore_https_errors=True` no GAL;
 - definir backup institucional autorizado;
@@ -38,7 +33,7 @@
 - realizar revisão de segurança antes de uso ampliado;
 - documentar responsáveis por instalação, suporte e revogação de acesso.
 
-### 4. Qualidade
+### 3. Qualidade
 
 - aumentar testes dos serviços SINAN sem chamar o portal real;
 - testar falhas de permissão e caminhos indisponíveis;
@@ -46,7 +41,7 @@
 - adicionar verificação automatizada no GitHub sem dados reais;
 - criar procedimento de versão e notas de lançamento.
 
-### 5. Novas abas
+### 4. Novas abas
 
 Somente depois de estabilizar a distribuição:
 
@@ -55,7 +50,7 @@ Somente depois de estabilizar a distribuição:
 - criar automação, serviço e interface separados;
 - adicionar testes antes de integrar ao painel.
 
-### 6. Estado compartilhado opcional
+### 5. Estado compartilhado opcional
 
 Avaliar apenas se houver necessidade institucional confirmada. A primeira versão deve compartilhar exclusivamente módulo, data de referência, conclusão, horário e responsável, nunca arquivos ou conteúdo clínico.
 

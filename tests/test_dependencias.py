@@ -59,6 +59,18 @@ class DependenciasTestCase(unittest.TestCase):
                 msg=f"Versão fechada divergente para {nome}.",
             )
 
+    def test_ferramentas_de_build_estao_fixadas(self):
+        versoes_build = ler_versoes("requirements-build.txt")
+
+        self.assertEqual(
+            versoes_build.get("pyinstaller"),
+            "6.22.0",
+        )
+        self.assertEqual(
+            versoes_build.get("pyinstaller-hooks-contrib"),
+            "2026.6",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

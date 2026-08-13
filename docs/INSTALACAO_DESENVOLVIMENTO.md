@@ -59,7 +59,7 @@ python scripts/verificar_ambiente.py
 git status --short
 ```
 
-O conjunto atual possui oito testes. O número pode aumentar; o critério permanente é que todos terminem com `OK`.
+O número de testes pode aumentar; o critério permanente é que todos terminem com `OK`.
 
 ## Executar
 

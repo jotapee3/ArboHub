@@ -30,6 +30,17 @@ Inclui `requirements.txt` e adiciona Watchfiles, usado pelo supervisor `dev.py`.
 
 Registra as versões exatas das dependências diretas e transitivas instaladas no ambiente validado. É o arquivo recomendado para reproduzir o desenvolvimento atual.
 
+### `requirements-build.txt`
+
+Inclui o ambiente validado e fixa as ferramentas usadas para gerar o
+protótipo Windows:
+
+- PyInstaller 6.22.0;
+- pyinstaller-hooks-contrib 2026.6.
+
+Essas ferramentas são necessárias somente no computador de build e não
+fazem parte do uso normal do código-fonte.
+
 Um arquivo fechado por versão reduz alterações inesperadas, mas não fornece, sozinho, verificação criptográfica dos pacotes. A etapa de distribuição deverá avaliar hashes, origem dos artefatos e processo institucional de atualização.
 
 ## Instalação reproduzível
@@ -70,4 +81,5 @@ python -m playwright install chromium
 
 Watchfiles não é necessário para o uso comum do aplicativo; ele serve apenas a `dev.py`. O futuro executável não deve incluir ferramentas de desenvolvimento sem necessidade.
 
-Antes de empacotar, será preciso confirmar oficialmente a compatibilidade entre a versão escolhida do Python e a ferramenta de geração do executável.
+O primeiro protótipo usa PyInstaller 6.22.0 com Python 3.14. A validação
+final depende do build no Windows e do teste em um segundo computador.

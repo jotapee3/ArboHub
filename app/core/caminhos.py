@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 
@@ -8,7 +9,15 @@ NOME_APLICATIVO = "ArboHub"
 
 
 def obter_raiz_projeto() -> Path:
-    """Retorna a raiz da instalação atual do ArboHub."""
+    """Retorna a raiz dos recursos da execução atual do ArboHub."""
+
+    if getattr(sys, "frozen", False):
+        raiz_empacotada = getattr(
+            sys,
+            "_MEIPASS",
+            Path(sys.executable).resolve().parent
+        )
+        return Path(raiz_empacotada).resolve()
 
     return Path(__file__).resolve().parents[2]
 

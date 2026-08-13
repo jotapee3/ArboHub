@@ -61,11 +61,13 @@ class TemaInterfaceService:
             normalizado = "escuro"
 
         if normalizado == "sistema":
-            return self._obter_tema_windows()
+            return self.obter_tema_sistema()
 
         return normalizado
 
-    def _obter_tema_windows(self) -> str:
+    def obter_tema_sistema(self) -> str:
+        """Retorna o tema de aplicativos configurado no Windows."""
+
         if sys.platform != "win32":
             return "escuro"
 
