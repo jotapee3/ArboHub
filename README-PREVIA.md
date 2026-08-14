@@ -12,7 +12,7 @@
     <img alt="Python 3.14" src="https://img.shields.io/badge/PYTHON-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white">
   </a>
   <a href="#requisitos">
-    <img alt="Windows" src="https://img.shields.io/badge/PLATAFORMA-WINDOWS-0078D4?style=for-the-badge&logo=windows&logoColor=white">
+    <img alt="Plataforma Windows" src="docs/images/badges/plataforma-windows.svg">
   </a>
   <a href="#status-do-projeto">
     <img alt="Em desenvolvimento" src="https://img.shields.io/badge/STATUS-EM_DESENVOLVIMENTO-F59E0B?style=for-the-badge&logo=githubactions&logoColor=white">
@@ -271,6 +271,6 @@ Desenvolvido por **João Paulo da Silveira Velho**, estudante do Bacharelado em 
     <img alt="Sugestões e problemas" src="https://img.shields.io/badge/CONTATO-GITHUB_ISSUES-2563EB?style=for-the-badge&logo=github&logoColor=white">
   </a>
   <a href="https://www.linkedin.com/in/joao-paulo-velho/">
-    <img alt="LinkedIn" src="https://img.shields.io/badge/LINKEDIN-JOÃO_PAULO-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white">
+    <img alt="LinkedIn de João Paulo" src="docs/images/badges/linkedin-joao-paulo.svg">
   </a>
 </p>
