@@ -270,7 +270,7 @@ Desenvolvido por **João Paulo da Silveira Velho**, estudante do Bacharelado em 
   <a href="https://github.com/jotapee3/ArboHub/issues">
     <img alt="Sugestões e problemas" src="https://img.shields.io/badge/CONTATO-GITHUB_ISSUES-2563EB?style=for-the-badge&logo=github&logoColor=white">
   </a>
-  <a href="https://www.linkedin.com/in/joaopaulo.velho/">
+  <a href="https://www.linkedin.com/in/joao-paulo-velho/">
     <img alt="LinkedIn" src="https://img.shields.io/badge/LINKEDIN-JOÃO_PAULO-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white">
   </a>
 </p>
