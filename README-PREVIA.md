@@ -31,7 +31,7 @@ Do painel de rotina à organização dos arquivos exportados, o ArboHub busca to
     <img alt="Documentação" src="https://img.shields.io/badge/LER-DOCUMENTAÇÃO-2563EB?style=for-the-badge&logo=readthedocs&logoColor=white">
   </a>
   <a href="docs/ROADMAP.md">
-    <img alt="Roadmap" src="https://img.shields.io/badge/VER-ROADMAP-16A34A?style=for-the-badge&logo=githubprojects&logoColor=white">
+    <img alt="Ver roadmap" src="docs/images/badges/roadmap.svg">
   </a>
 </p>
 
@@ -77,7 +77,7 @@ A versão portátil inclui o ambiente necessário para a aplicação e não exig
 
 <p>
   <a href="docs/DISTRIBUICAO_WINDOWS.md">
-    <img alt="Instruções para Windows" src="https://img.shields.io/badge/GUIA-WINDOWS-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
+    <img alt="Instruções para Windows" src="docs/images/badges/guia-windows.svg">
   </a>
 </p>
 

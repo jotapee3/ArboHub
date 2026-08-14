@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="157" height="28" viewBox="0 0 157 28" role="img" aria-label="Guia: Windows">
+  <title>Guia: Windows</title>
+  <g shape-rendering="crispEdges">
+    <rect width="66" height="28" fill="#555"/>
+    <rect x="66" width="91" height="28" fill="#0078D4"/>
+  </g>
+  <g fill="#fff">
+    <g transform="translate(7 6)">
+      <path d="M1 3.2 7.5 2.3v5.3H1V3.2Zm7.3-1L15 1.3v6.3H8.3V2.2ZM1 8.4h6.5v5.3L1 12.8V8.4Zm7.3 0H15v6.3l-6.7-.9V8.4Z"/>
+    </g>
+    <g font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="10" font-weight="700" letter-spacing="0.8">
+      <text x="44" y="18" text-anchor="middle">GUIA</text>
+      <text x="111.5" y="18" text-anchor="middle">WINDOWS</text>
+    </g>
+  </g>
+</svg>
