@@ -6,16 +6,16 @@
 
 <p>
   <a href="#status-do-projeto">
-    <img alt="Versão v0.6" src="https://img.shields.io/badge/VERSÃO-v0.6-2563EB?style=for-the-badge">
+    <img alt="Versão v0.6" src="https://img.shields.io/badge/VERSÃO-v0.6-2563EB?style=for-the-badge&logo=git&logoColor=white">
   </a>
   <a href="#tecnologias">
     <img alt="Python 3.14" src="https://img.shields.io/badge/PYTHON-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white">
   </a>
   <a href="#requisitos">
-    <img alt="Windows" src="https://img.shields.io/badge/PLATAFORMA-WINDOWS-0078D4?style=for-the-badge&logo=windows11&logoColor=white">
+    <img alt="Windows" src="https://img.shields.io/badge/PLATAFORMA-WINDOWS-0078D4?style=for-the-badge&logo=windows&logoColor=white">
   </a>
   <a href="#status-do-projeto">
-    <img alt="Em desenvolvimento" src="https://img.shields.io/badge/STATUS-EM_DESENVOLVIMENTO-F59E0B?style=for-the-badge">
+    <img alt="Em desenvolvimento" src="https://img.shields.io/badge/STATUS-EM_DESENVOLVIMENTO-F59E0B?style=for-the-badge&logo=githubactions&logoColor=white">
   </a>
 </p>
 
