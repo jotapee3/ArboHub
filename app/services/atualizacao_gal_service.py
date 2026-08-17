@@ -300,11 +300,42 @@ class AtualizacaoGalService:
         )
         self._emitir(
             self.EVENTO_CONCLUIDO,
-            mensagem=(
+            mensagem=self._mensagem_conclusao(resultado),
+            resultado=resultado
+        )
+
+    @staticmethod
+    def _mensagem_conclusao(
+        resultado: dict[str, object]
+    ) -> str:
+        data_inicio = resultado.get("data_inicio")
+        data_fim = resultado.get("data_fim")
+
+        if not isinstance(data_inicio, date) or not isinstance(
+            data_fim,
+            date
+        ):
+            return (
                 "O histórico, o Banco_Atual e o TesteSORO "
                 "foram atualizados."
-            ),
-            resultado=resultado
+            )
+
+        data_inicio_padrao = data_fim - timedelta(days=7)
+
+        if data_inicio < data_inicio_padrao:
+            return (
+                "Atualização concluída. O arquivo inicial "
+                "correspondeu ao modelo vazio, então a data inicial "
+                "retrocedeu automaticamente para "
+                f"{data_inicio.strftime('%d/%m/%Y')}; a data final "
+                "permaneceu em "
+                f"{data_fim.strftime('%d/%m/%Y')}."
+            )
+
+        return (
+            "Atualização semanal concluída para o período de "
+            f"{data_inicio.strftime('%d/%m/%Y')} a "
+            f"{data_fim.strftime('%d/%m/%Y')}."
         )
 
     def _atualizar_status_relatorio(self, mensagem: str):

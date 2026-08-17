@@ -34,7 +34,11 @@ class _ExportacaoGalFake:
 
 
 class _DashboardFake:
-    pass
+    def __init__(self):
+        self.conclusoes = 0
+
+    def marcar_gal_concluido(self):
+        self.conclusoes += 1
 
 
 class AtualizacaoGalServiceTestCase(unittest.TestCase):
@@ -74,6 +78,36 @@ class AtualizacaoGalServiceTestCase(unittest.TestCase):
                     (date(2026, 7, 27), date(2026, 8, 17))
                 ]
             )
+
+    def test_conclusao_informa_periodo_retrocedido(self):
+        dashboard = _DashboardFake()
+        service = AtualizacaoGalService(
+            arquivos_service=_ArquivosGalFake(set()),
+            dashboard_service=dashboard
+        )
+
+        service._concluir(
+            {
+                "data_inicio": date(2026, 8, 3),
+                "data_fim": date(2026, 8, 17)
+            }
+        )
+
+        evento = next(
+            item
+            for item in service.obter_eventos()
+            if item["tipo"] == service.EVENTO_CONCLUIDO
+        )
+
+        self.assertEqual(dashboard.conclusoes, 1)
+        self.assertIn(
+            "data inicial retrocedeu automaticamente para 03/08/2026",
+            evento["mensagem"]
+        )
+        self.assertIn(
+            "data final permaneceu em 17/08/2026",
+            evento["mensagem"]
+        )
 
 
 if __name__ == "__main__":

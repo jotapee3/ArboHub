@@ -1121,12 +1121,12 @@ class GalPage(ctk.CTkFrame):
 
         if tipo == AtualizacaoGalService.EVENTO_CONCLUIDO:
             resultado = evento.get("resultado", {})
+            self._registrar_operacao(mensagem)
+            self._atualizar_estado_geral()
             self.label_status_execucao.configure(
                 text=mensagem,
                 text_color=Colors.SUCCESS
             )
-            self._registrar_operacao(mensagem)
-            self._atualizar_estado_geral()
             self._atualizar_controles()
             self.notificacoes_service.tocar_conclusao()
 
@@ -1134,7 +1134,7 @@ class GalPage(ctk.CTkFrame):
                 master=self.winfo_toplevel(),
                 titulo="GAL atualizado",
                 mensagem=(
-                    "A atualização semanal foi concluída.\n\n"
+                    f"{mensagem}\n\n"
                     f"Histórico:\n{resultado.get('arquivo_historico', '')}\n\n"
                     f"Banco_Atual:\n{resultado.get('arquivo_banco_atual', '')}\n\n"
                     f"TesteSORO:\n{resultado.get('arquivo_teste', '')}"
