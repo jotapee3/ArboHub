@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import tempfile
@@ -10,6 +11,11 @@ from pathlib import Path
 
 class ArquivosGalService:
     """Organiza o relatorio do GAL sem ler seu conteudo clinico."""
+
+    CSV_VAZIO_SHA256 = (
+        "86e7b2f96c2dde2e8ff1589da12a55d5"
+        "536af1e722128842fc28e3f6d23a042f"
+    )
 
     MESES = (
         "Janeiro",
@@ -135,7 +141,8 @@ class ArquivosGalService:
     def processar_download(
         self,
         caminho_arquivo: str | Path,
-        data_referencia: date | None = None
+        data_referencia: date | None = None,
+        data_inicio: date | None = None
     ) -> dict[str, object]:
         """
         Normaliza o relatório e substitui os três destinos do GAL.
@@ -156,9 +163,16 @@ class ArquivosGalService:
         if origem.stat().st_size <= 0:
             raise ValueError("O arquivo do GAL está vazio.")
 
-        data_inicio, data_fim = self.intervalo_semanal(
+        data_inicio_padrao, data_fim = self.intervalo_semanal(
             data_referencia
         )
+        data_inicio = data_inicio or data_inicio_padrao
+
+        if self.corresponde_ao_csv_vazio(origem):
+            raise ValueError(
+                "O arquivo do GAL corresponde ao modelo de CSV vazio."
+            )
+
         destinos = self.validar_destinos(data_referencia)
         with tempfile.TemporaryDirectory(
             prefix="arbohub_gal_conteudo_"
@@ -217,6 +231,54 @@ class ArquivosGalService:
             "data_inicio": data_inicio,
             "data_fim": data_fim
         }
+
+    def corresponde_ao_csv_vazio(
+        self,
+        caminho_arquivo: str | Path
+    ) -> bool:
+        """
+        Compara somente os bytes do CSV com a assinatura de referencia.
+
+        Nenhuma linha, coluna ou dado do relatorio e interpretado. Quando
+        o GAL entrega um ZIP, o CSV e apenas extraido para que sua
+        assinatura binaria seja calculada.
+        """
+
+        origem = Path(caminho_arquivo)
+
+        if not origem.is_file():
+            raise FileNotFoundError(
+                f"O arquivo do GAL não foi encontrado: {origem}"
+            )
+
+        with tempfile.TemporaryDirectory(
+            prefix="arbohub_gal_assinatura_"
+        ) as pasta_temporaria:
+            arquivo_relatorio = self._obter_relatorio(
+                origem=origem,
+                pasta_temporaria=Path(pasta_temporaria)
+            )
+
+            if arquivo_relatorio.suffix.casefold() != ".csv":
+                return False
+
+            return (
+                self._calcular_sha256(arquivo_relatorio)
+                == self.CSV_VAZIO_SHA256
+            )
+
+    @staticmethod
+    def _calcular_sha256(caminho_arquivo: Path) -> str:
+        assinatura = hashlib.sha256()
+
+        with caminho_arquivo.open("rb") as arquivo:
+            for bloco in iter(
+                lambda: arquivo.read(1024 * 1024),
+                b""
+            ):
+                assinatura.update(bloco)
+
+        return assinatura.hexdigest()
 
     def _obter_relatorio(
         self,

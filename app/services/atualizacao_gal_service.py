@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from queue import Empty, Queue
 from tempfile import TemporaryDirectory
@@ -163,12 +163,13 @@ class AtualizacaoGalService:
                 prefix="arbohub_gal_download_"
             ) as pasta_temporaria:
                 exportacao = ExportacaoSorotipoGal(navegador)
-                arquivo = exportacao.baixar(
-                    pasta_temporaria=pasta_temporaria,
-                    data_inicio=data_inicio,
-                    data_fim=data_fim,
-                    cancelado=self._cancelamento.is_set,
-                    ao_status=self._atualizar_status_relatorio
+                arquivo, data_inicio = (
+                    self._baixar_ate_diferir_do_csv_vazio(
+                        exportacao=exportacao,
+                        pasta_temporaria=pasta_temporaria,
+                        data_inicio=data_inicio,
+                        data_fim=data_fim
+                    )
                 )
 
                 self._etapa(
@@ -182,7 +183,10 @@ class AtualizacaoGalService:
                     f"Arquivo recebido: {arquivo.name}"
                 )
                 self._verificar_cancelamento()
-                resultado = self._organizar_arquivo(arquivo)
+                resultado = self._organizar_arquivo(
+                    arquivo,
+                    data_inicio=data_inicio
+                )
 
             self._concluir(resultado)
 
@@ -193,6 +197,40 @@ class AtualizacaoGalService:
                 navegador.fechar()
 
             self._finalizar_execucao()
+
+    def _baixar_ate_diferir_do_csv_vazio(
+        self,
+        exportacao: ExportacaoSorotipoGal,
+        pasta_temporaria: str | Path,
+        data_inicio: date,
+        data_fim: date
+    ) -> tuple[Path, date]:
+        while True:
+            self._verificar_cancelamento()
+            arquivo = exportacao.baixar(
+                pasta_temporaria=pasta_temporaria,
+                data_inicio=data_inicio,
+                data_fim=data_fim,
+                cancelado=self._cancelamento.is_set,
+                ao_status=self._atualizar_status_relatorio
+            )
+
+            if not self.arquivos_service.corresponde_ao_csv_vazio(
+                arquivo
+            ):
+                return arquivo, data_inicio
+
+            data_inicio -= timedelta(days=7)
+            self._emitir(
+                self.EVENTO_STATUS,
+                mensagem=(
+                    "O arquivo recebido corresponde ao modelo vazio. "
+                    "Repetindo a geração com início em "
+                    f"{data_inicio.strftime('%d/%m/%Y')} e mantendo "
+                    f"o fim em {data_fim.strftime('%d/%m/%Y')}."
+                ),
+                etapa=self.ETAPA_RELATORIO
+            )
 
     def _executar_importacao_manual(self, caminho_arquivo: str):
         try:
@@ -220,14 +258,21 @@ class AtualizacaoGalService:
         finally:
             self._finalizar_execucao()
 
-    def _organizar_arquivo(self, arquivo: Path) -> dict[str, object]:
+    def _organizar_arquivo(
+        self,
+        arquivo: Path,
+        data_inicio: date | None = None
+    ) -> dict[str, object]:
         self._verificar_cancelamento()
         self._etapa(
             self.ETAPA_HISTORICO,
             "iniciada",
             "Preservando o arquivo no histórico mensal do GAL."
         )
-        resultado = self.arquivos_service.processar_download(arquivo)
+        resultado = self.arquivos_service.processar_download(
+            arquivo,
+            data_inicio=data_inicio
+        )
         self._etapa(
             self.ETAPA_HISTORICO,
             "concluida",

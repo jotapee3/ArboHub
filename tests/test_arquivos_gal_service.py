@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 import zipfile
@@ -27,6 +28,33 @@ class ArquivosGalServiceTestCase(unittest.TestCase):
                 service.intervalo_semanal(date(2026, 8, 17)),
                 (date(2026, 8, 10), date(2026, 8, 17))
             )
+
+    def test_compara_assinatura_sem_interpretar_csv(self):
+        with tempfile.TemporaryDirectory() as temporario:
+            raiz = Path(temporario)
+            service = ArquivosGalService()
+            arquivo = raiz / "relatorio.csv"
+            referencia = b"referencia-binaria-sem-dados-clinicos"
+            diferente = b"arquivo-binario-diferente"
+            assinatura_original = service.CSV_VAZIO_SHA256
+
+            try:
+                service.CSV_VAZIO_SHA256 = hashlib.sha256(
+                    referencia
+                ).hexdigest()
+                arquivo.write_bytes(referencia)
+
+                self.assertTrue(
+                    service.corresponde_ao_csv_vazio(arquivo)
+                )
+
+                arquivo.write_bytes(diferente)
+
+                self.assertFalse(
+                    service.corresponde_ao_csv_vazio(arquivo)
+                )
+            finally:
+                service.CSV_VAZIO_SHA256 = assinatura_original
 
     def test_processamento_cria_e_substitui_zip_semanal(self):
         with tempfile.TemporaryDirectory() as temporario:
@@ -80,9 +108,15 @@ class ArquivosGalServiceTestCase(unittest.TestCase):
 
             conteudo_novo = b"coluna\nsegunda-versao\n"
             relatorio.write_bytes(conteudo_novo)
-            service.processar_download(
+            resultado_novo = service.processar_download(
                 relatorio,
-                data_referencia=referencia
+                data_referencia=referencia,
+                data_inicio=date(2026, 7, 27)
+            )
+
+            self.assertEqual(
+                resultado_novo["data_inicio"],
+                date(2026, 7, 27)
             )
 
             self._assert_zip_semanal(
