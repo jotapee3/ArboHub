@@ -95,7 +95,8 @@ class MainWindow(ctk.CTk):
             lambda master: InicioPage(
                 master,
                 comando_sinan=self.abrir_sinan,
-                comando_gal=self.abrir_gal
+                comando_gal=self.abrir_gal,
+                comando_historico=self.abrir_historico
             )
         )
 

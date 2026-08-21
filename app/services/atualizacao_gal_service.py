@@ -224,10 +224,10 @@ class AtualizacaoGalService:
             self._emitir(
                 self.EVENTO_STATUS,
                 mensagem=(
-                    "O arquivo recebido corresponde ao modelo vazio. "
-                    "Repetindo a geração com início em "
-                    f"{data_inicio.strftime('%d/%m/%Y')} e mantendo "
-                    f"o fim em {data_fim.strftime('%d/%m/%Y')}."
+                    "Arquivo sem dados no período consultado. "
+                    "Ampliando a busca para "
+                    f"{data_inicio.strftime('%d/%m/%Y')} a "
+                    f"{data_fim.strftime('%d/%m/%Y')}."
                 ),
                 etapa=self.ETAPA_RELATORIO
             )
@@ -292,7 +292,16 @@ class AtualizacaoGalService:
 
     def _concluir(self, resultado: dict[str, object]):
         self._verificar_cancelamento()
-        self.dashboard_service.marcar_gal_concluido()
+        data_inicio = resultado.get("data_inicio")
+        data_fim = resultado.get("data_fim")
+        periodo_valido = (
+            isinstance(data_inicio, date)
+            and isinstance(data_fim, date)
+        )
+        self.dashboard_service.marcar_gal_concluido(
+            data_inicio=(data_inicio if periodo_valido else None),
+            data_fim=(data_fim if periodo_valido else None)
+        )
         self._etapa(
             self.ETAPA_FINALIZACAO,
             "concluida",

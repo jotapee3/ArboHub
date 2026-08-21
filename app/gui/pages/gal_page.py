@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import customtkinter as ctk
@@ -1450,14 +1450,37 @@ class GalPage(ctk.CTkFrame):
         )
 
         if estado["concluido"]:
+            data_inicio_real = estado.get("data_inicio")
+            data_fim_real = estado.get("data_fim")
+            if not isinstance(data_inicio_real, date):
+                data_inicio_real = data_inicio
+            if not isinstance(data_fim_real, date):
+                data_fim_real = data_fim
+
+            periodo_real = (
+                f"{data_inicio_real.strftime('%d/%m/%Y')} a "
+                f"{data_fim_real.strftime('%d/%m/%Y')}"
+            )
+            periodo_ampliado = (
+                data_inicio_real
+                < data_fim_real - timedelta(days=7)
+            )
             horario = self._formatar_horario(
                 estado.get("atualizacao_em")
             )
             self.label_status_execucao.configure(
                 text=(
-                    f"O relatório semanal de {periodo} já está "
-                    "disponível. Use “Resetar teste” somente se "
-                    "precisar repetir a rotina."
+                    (
+                        "Atualização concluída com período ampliado: "
+                        f"{periodo_real}. A data inicial foi "
+                        "retrocedida automaticamente."
+                    )
+                    if periodo_ampliado
+                    else (
+                        f"O relatório semanal de {periodo_real} já "
+                        "está disponível. Use “Resetar teste” somente "
+                        "se precisar repetir a rotina."
+                    )
                 ),
                 text_color=Colors.TEXT_SECONDARY
             )
@@ -1471,9 +1494,9 @@ class GalPage(ctk.CTkFrame):
         elif estado["programado"]:
             self.label_status_execucao.configure(
                 text=(
-                    f"A rotina desta semana consulta as liberações "
-                    f"de {periodo}. O intervalo avança "
-                    "automaticamente toda segunda-feira."
+                    f"Período previsto: {periodo}. Ele avança toda "
+                    "segunda-feira; se o arquivo vier sem dados, "
+                    "o início será retrocedido automaticamente."
                 ),
                 text_color=Colors.TEXT_SECONDARY
             )
@@ -1484,9 +1507,9 @@ class GalPage(ctk.CTkFrame):
         else:
             self.label_status_execucao.configure(
                 text=(
-                    f"A rotina semanal consulta as liberações de "
-                    f"{periodo}. O intervalo muda automaticamente "
-                    "toda segunda-feira."
+                    f"Período previsto: {periodo}. Ele avança toda "
+                    "segunda-feira; se o arquivo vier sem dados, "
+                    "o início será retrocedido automaticamente."
                 ),
                 text_color=Colors.TEXT_SECONDARY
             )

@@ -144,15 +144,50 @@ class DashboardService:
                     """
                 )
 
+            if "atualizacao_gal_data_inicio" not in colunas:
+                conexao.execute(
+                    """
+                        ALTER TABLE rotina_diaria
+                        ADD COLUMN atualizacao_gal_data_inicio TEXT
+                    """
+                )
+
+            if "atualizacao_gal_data_fim" not in colunas:
+                conexao.execute(
+                    """
+                        ALTER TABLE rotina_diaria
+                        ADD COLUMN atualizacao_gal_data_fim TEXT
+                    """
+                )
+
             conexao.commit()
 
     def marcar_gal_concluido(
         self,
-        data_referencia: date | None = None
+        data_referencia: date | None = None,
+        data_inicio: date | None = None,
+        data_fim: date | None = None
     ):
         """
-        Ponto de integração para a futura automação do GAL.
+        Registra a conclusão e o período efetivamente usado no GAL.
+
+        As datas são opcionais para manter compatibilidade com
+        registros e integrações anteriores.
         """
+
+        if (data_inicio is None) != (data_fim is None):
+            raise ValueError(
+                "Informe juntas as datas inicial e final do GAL."
+            )
+
+        if (
+            data_inicio is not None
+            and data_fim is not None
+            and data_inicio > data_fim
+        ):
+            raise ValueError(
+                "A data inicial do GAL não pode superar a final."
+            )
 
         data_referencia = (
             data_referencia
@@ -169,12 +204,24 @@ class DashboardService:
                     UPDATE rotina_diaria
                     SET
                         atualizacao_gal = 1,
-                        atualizacao_gal_em = ?
+                        atualizacao_gal_em = ?,
+                        atualizacao_gal_data_inicio = ?,
+                        atualizacao_gal_data_fim = ?
                     WHERE data_referencia = ?
                 """,
                 (
                     datetime.now().isoformat(
                         timespec="seconds"
+                    ),
+                    (
+                        data_inicio.isoformat()
+                        if data_inicio is not None
+                        else None
+                    ),
+                    (
+                        data_fim.isoformat()
+                        if data_fim is not None
+                        else None
                     ),
                     data_referencia.isoformat()
                 )
@@ -201,7 +248,9 @@ class DashboardService:
                     UPDATE rotina_diaria
                     SET
                         atualizacao_gal = 0,
-                        atualizacao_gal_em = NULL
+                        atualizacao_gal_em = NULL,
+                        atualizacao_gal_data_inicio = NULL,
+                        atualizacao_gal_data_fim = NULL
                     WHERE data_referencia = ?
                 """,
                 (data_referencia.isoformat(),)
@@ -274,7 +323,12 @@ class DashboardService:
             hoje
         )
         atividades = self.obter_atividades_recentes(
-            limite=6
+            limite=6,
+            limite_dias=3
+        )
+        grupos_atividades = self.agrupar_atividades_por_dia(
+            atividades,
+            hoje=hoje
         )
 
         return {
@@ -283,6 +337,7 @@ class DashboardService:
             "resumo_mes": resumo_mes,
             "sequencia_atual": sequencia,
             "atividades_recentes": atividades,
+            "grupos_atividades_recentes": grupos_atividades,
             "saudacao": self._saudacao(),
             "data_formatada": self.formatar_data_extenso(
                 hoje
@@ -389,7 +444,17 @@ class DashboardService:
                 "atualizacao_em":
                     registro.get(
                         "atualizacao_gal_em"
+                    ),
+                "data_inicio": self._converter_data_iso(
+                    registro.get(
+                        "atualizacao_gal_data_inicio"
                     )
+                ),
+                "data_fim": self._converter_data_iso(
+                    registro.get(
+                        "atualizacao_gal_data_fim"
+                    )
+                )
             }
         }
 
@@ -650,8 +715,12 @@ class DashboardService:
 
     def obter_atividades_recentes(
         self,
-        limite: int = 6
+        limite: int = 6,
+        limite_dias: int = 3
     ) -> list[dict[str, object]]:
+        if limite <= 0 or limite_dias <= 0:
+            return []
+
         with self.conectar() as conexao:
             linhas = conexao.execute(
                 """
@@ -720,7 +789,86 @@ class DashboardService:
             reverse=True
         )
 
-        return atividades[:limite]
+        selecionadas = []
+        datas_incluidas: set[date] = set()
+
+        for atividade in atividades:
+            data_referencia = atividade["data_referencia"]
+
+            if data_referencia not in datas_incluidas:
+                if len(datas_incluidas) >= limite_dias:
+                    break
+                datas_incluidas.add(data_referencia)
+
+            selecionadas.append(atividade)
+            if len(selecionadas) >= limite:
+                break
+
+        return selecionadas
+
+    @classmethod
+    def agrupar_atividades_por_dia(
+        cls,
+        atividades: list[dict[str, object]],
+        hoje: date | None = None
+    ) -> list[dict[str, object]]:
+        """Agrupa eventos operacionais já ordenados por horário."""
+
+        hoje = hoje or date.today()
+        grupos: list[dict[str, object]] = []
+        grupos_por_data: dict[date, dict[str, object]] = {}
+
+        for atividade in atividades:
+            data_referencia = atividade.get("data_referencia")
+            if not isinstance(data_referencia, date):
+                continue
+
+            grupo = grupos_por_data.get(data_referencia)
+            if grupo is None:
+                grupo = {
+                    "data": data_referencia,
+                    "rotulo": cls._rotulo_data_atividade(
+                        data_referencia,
+                        hoje
+                    ),
+                    "atividades": []
+                }
+                grupos_por_data[data_referencia] = grupo
+                grupos.append(grupo)
+
+            grupo["atividades"].append(atividade)
+
+        for grupo in grupos:
+            grupo["quantidade"] = len(grupo["atividades"])
+
+        return grupos
+
+    @classmethod
+    def _rotulo_data_atividade(
+        cls,
+        data_referencia: date,
+        hoje: date
+    ) -> str:
+        diferenca = (hoje - data_referencia).days
+        if diferenca == 0:
+            return "Hoje"
+        if diferenca == 1:
+            return "Ontem"
+
+        return (
+            f"{data_referencia.day} de "
+            f"{cls.MESES[data_referencia.month - 1]}"
+        )
+
+    @staticmethod
+    def _converter_data_iso(valor: object) -> date | None:
+        if not isinstance(valor, str) or not valor:
+            return None
+
+        try:
+            return date.fromisoformat(valor)
+        except ValueError:
+            return None
 
     # ------------------------------------------------------------------
     # Consultas internas

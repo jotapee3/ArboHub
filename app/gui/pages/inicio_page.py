@@ -37,10 +37,12 @@ class InicioPage(ctk.CTkScrollableFrame):
         self,
         master,
         comando_sinan=None,
-        comando_gal=None
+        comando_gal=None,
+        comando_historico=None
     ):
         self.comando_sinan = comando_sinan
         self.comando_gal = comando_gal
+        self.comando_historico = comando_historico
 
         super().__init__(
             master,
@@ -769,10 +771,14 @@ class InicioPage(ctk.CTkScrollableFrame):
             0,
             weight=1
         )
+        self.painel_atividade.grid_columnconfigure(
+            1,
+            weight=0
+        )
 
         ctk.CTkLabel(
             self.painel_atividade,
-            text="Atividade recente",
+            text="Atividades recentes",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=17,
@@ -783,9 +789,39 @@ class InicioPage(ctk.CTkScrollableFrame):
         ).grid(
             row=0,
             column=0,
-            sticky="ew",
-            padx=20,
+            sticky="w",
+            padx=(20, 12),
             pady=(18, 4)
+        )
+
+        ctk.CTkButton(
+            self.painel_atividade,
+            text="Ver histórico completo  ›",
+            command=self.comando_historico,
+            width=158,
+            height=30,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            border_width=1,
+            border_color=Colors.BORDER,
+            text_color=Colors.TEXT_SECONDARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            state=(
+                "normal"
+                if callable(self.comando_historico)
+                else "disabled"
+            )
+        ).grid(
+            row=0,
+            column=1,
+            sticky="e",
+            padx=(0, 20),
+            pady=(16, 2)
         )
 
         ctk.CTkLabel(
@@ -803,6 +839,7 @@ class InicioPage(ctk.CTkScrollableFrame):
         ).grid(
             row=1,
             column=0,
+            columnspan=2,
             sticky="ew",
             padx=20,
             pady=(0, 12)
@@ -815,6 +852,7 @@ class InicioPage(ctk.CTkScrollableFrame):
         self.container_atividades.grid(
             row=2,
             column=0,
+            columnspan=2,
             sticky="ew",
             padx=20,
             pady=(0, 16)
@@ -1221,7 +1259,19 @@ class InicioPage(ctk.CTkScrollableFrame):
             "atividades_recentes"
         ]
 
-        if not atividades:
+        grupos = self.resumo.get(
+            "grupos_atividades_recentes"
+        )
+        if grupos is None:
+            grupos = (
+                self.dashboard_service
+                .agrupar_atividades_por_dia(
+                    atividades,
+                    hoje=date.today()
+                )
+            )
+
+        if not grupos:
             ctk.CTkLabel(
                 self.container_atividades,
                 text="Nenhuma atividade operacional registrada.",
@@ -1239,90 +1289,50 @@ class InicioPage(ctk.CTkScrollableFrame):
             )
             return
 
-        hoje = date.today()
+        linha_grade = 0
+        indice_atividade = 0
+        total_atividades = sum(
+            len(grupo["atividades"])
+            for grupo in grupos
+        )
 
-        for indice, atividade in enumerate(
-            atividades
-        ):
-            linha = ctk.CTkFrame(
+        for indice_grupo, grupo in enumerate(grupos):
+            cabecalho = ctk.CTkFrame(
                 self.container_atividades,
-                fg_color=(
-                    Colors.BACKGROUND
-                    if indice % 2 == 0
-                    else Colors.SURFACE_HOVER
-                ),
-                corner_radius=7
+                fg_color="transparent"
             )
-            linha.grid(
-                row=indice,
+            cabecalho.grid(
+                row=linha_grade,
                 column=0,
                 sticky="ew",
-                pady=(
-                    (0, 6)
-                    if indice < len(atividades) - 1
-                    else 0
-                )
+                pady=((0 if indice_grupo == 0 else 11), 6)
             )
-            linha.grid_columnconfigure(
-                1,
-                weight=1
-            )
+            cabecalho.grid_columnconfigure(0, weight=1)
 
             ctk.CTkLabel(
-                linha,
-                text="✔",
-                font=ctk.CTkFont(
-                    family="Segoe UI",
-                    size=13,
-                    weight="bold"
-                ),
-                text_color=Colors.SUCCESS
-            ).grid(
-                row=0,
-                column=0,
-                padx=(13, 10),
-                pady=11
-            )
-
-            ctk.CTkLabel(
-                linha,
-                text=atividade["titulo"],
+                cabecalho,
+                text=grupo["rotulo"],
                 font=ctk.CTkFont(
                     family="Segoe UI",
                     size=12,
                     weight="bold"
                 ),
-                text_color=Colors.TEXT_PRIMARY,
+                text_color=Colors.TEXT_SECONDARY,
                 anchor="w"
             ).grid(
                 row=0,
-                column=1,
-                sticky="w",
-                pady=11
+                column=0,
+                sticky="w"
             )
 
-            horario = atividade["horario"]
-            diferenca = (
-                hoje
-                - atividade["data_referencia"]
-            ).days
-
-            if diferenca == 0:
-                texto_data = (
-                    f"Hoje, {horario.strftime('%H:%M')}"
-                )
-            elif diferenca == 1:
-                texto_data = (
-                    f"Ontem, {horario.strftime('%H:%M')}"
-                )
-            else:
-                texto_data = horario.strftime(
-                    "%d/%m/%Y, %H:%M"
-                )
-
+            quantidade = int(grupo["quantidade"])
             ctk.CTkLabel(
-                linha,
-                text=texto_data,
+                cabecalho,
+                text=(
+                    "1 atividade"
+                    if quantidade == 1
+                    else f"{quantidade} atividades"
+                ),
                 font=ctk.CTkFont(
                     family="Segoe UI",
                     size=10
@@ -1331,11 +1341,92 @@ class InicioPage(ctk.CTkScrollableFrame):
                 anchor="e"
             ).grid(
                 row=0,
-                column=2,
-                sticky="e",
-                padx=(12, 13),
-                pady=11
+                column=1,
+                sticky="e"
             )
+            linha_grade += 1
+
+            for atividade in grupo["atividades"]:
+                linha = ctk.CTkFrame(
+                    self.container_atividades,
+                    fg_color=(
+                        Colors.BACKGROUND
+                        if indice_atividade % 2 == 0
+                        else Colors.SURFACE_HOVER
+                    ),
+                    corner_radius=7
+                )
+                linha.grid(
+                    row=linha_grade,
+                    column=0,
+                    sticky="ew",
+                    pady=(
+                        (0, 6)
+                        if indice_atividade < total_atividades - 1
+                        else 0
+                    )
+                )
+                linha.grid_columnconfigure(1, weight=1)
+
+                ctk.CTkLabel(
+                    linha,
+                    text="✔",
+                    font=ctk.CTkFont(
+                        family="Segoe UI",
+                        size=13,
+                        weight="bold"
+                    ),
+                    text_color=Colors.SUCCESS
+                ).grid(
+                    row=0,
+                    column=0,
+                    padx=(13, 10),
+                    pady=11
+                )
+
+                ctk.CTkLabel(
+                    linha,
+                    text=atividade["titulo"],
+                    font=ctk.CTkFont(
+                        family="Segoe UI",
+                        size=12,
+                        weight="bold"
+                    ),
+                    text_color=Colors.TEXT_PRIMARY,
+                    anchor="w"
+                ).grid(
+                    row=0,
+                    column=1,
+                    sticky="w",
+                    pady=11
+                )
+
+                horario = atividade["horario"]
+                texto_horario = (
+                    horario.strftime("%H:%M")
+                    if isinstance(horario, datetime)
+                    else ""
+                )
+
+                ctk.CTkLabel(
+                    linha,
+                    text=texto_horario,
+                    font=ctk.CTkFont(
+                        family="Segoe UI",
+                        size=10
+                    ),
+                    text_color=Colors.TEXT_MUTED,
+                    anchor="e"
+                ).grid(
+                    row=0,
+                    column=2,
+                    sticky="e",
+                    padx=(12, 13),
+                    pady=11
+                )
+
+                indice_atividade += 1
+                linha_grade += 1
 
     # ------------------------------------------------------------------
     # Calendário estilo GitHub
