@@ -24,6 +24,9 @@ from app.services.rotina_bases_service import (
     RotinaBasesCancelada,
     RotinaBasesService
 )
+from app.services.selecao_destinos_bases import (
+    SelecaoDestinosBases
+)
 
 
 class AtualizacaoBasesService:
@@ -105,17 +108,26 @@ class AtualizacaoBasesService:
     # Estado público
     # ------------------------------------------------------------------
 
-    def avaliar_estado_do_dia(self) -> dict[str, object]:
+    def avaliar_estado_do_dia(
+        self,
+        selecao_destinos: SelecaoDestinosBases | None = None
+    ) -> dict[str, object]:
         """
         Informa à interface se haverá novas solicitações, acesso ao
         navegador ou simples reutilização dos arquivos do dia.
         """
 
-        return self.rotina_service.avaliar_estado_do_dia()
+        return self.rotina_service.avaliar_estado_do_dia(
+            selecao_destinos=(
+                selecao_destinos
+                or SelecaoDestinosBases.completa()
+            )
+        )
 
     def iniciar(
         self,
-        solicitacoes_autorizadas: bool = False
+        solicitacoes_autorizadas: bool = False,
+        selecao_destinos: SelecaoDestinosBases | None = None
     ) -> bool:
         """
         Inicia a rotina em segundo plano.
@@ -125,6 +137,10 @@ class AtualizacaoBasesService:
         """
 
         rotina = self.checkpoint_service.obter_rotina()
+        selecao = (
+            selecao_destinos
+            or SelecaoDestinosBases.completa()
+        )
 
         if rotina["atualizacao_bases"]:
             return False
@@ -144,7 +160,8 @@ class AtualizacaoBasesService:
                 target=self._executar,
                 kwargs={
                     "solicitacoes_autorizadas":
-                        bool(solicitacoes_autorizadas)
+                        bool(solicitacoes_autorizadas),
+                    "selecao_destinos": selecao
                 },
                 name="ArboHub-AtualizacaoBases",
                 daemon=True
@@ -323,7 +340,8 @@ class AtualizacaoBasesService:
 
     def _executar(
         self,
-        solicitacoes_autorizadas: bool
+        solicitacoes_autorizadas: bool,
+        selecao_destinos: SelecaoDestinosBases
     ):
         navegador: NavegadorSinan | None = None
         exportacao: ExportacaoBasesDbf | None = None
@@ -336,7 +354,9 @@ class AtualizacaoBasesService:
             )
 
             estado = (
-                self.rotina_service.avaliar_estado_do_dia()
+                self.rotina_service.avaliar_estado_do_dia(
+                    selecao_destinos=selecao_destinos
+                )
             )
 
             self._emitir(
@@ -416,15 +436,12 @@ class AtualizacaoBasesService:
             self._verificar_cancelamento()
 
             resultado = (
-                self.rotina_service.executar_rotina_completa(
+                self.rotina_service.executar_rotina_selecionada(
+                    selecao_destinos=selecao_destinos,
                     exportacao=exportacao,
                     solicitacoes_autorizadas=(
                         solicitacoes_autorizadas
                     ),
-                    usar_historico_existente=True,
-                    substituir_historico=False,
-                    atualizar_pastas_teste=True,
-                    atualizar_bancos_atuais=True,
                     intervalo_consulta_segundos=(
                         configuracoes_exportacao[
                             "intervalo_consulta_segundos"
@@ -464,7 +481,8 @@ class AtualizacaoBasesService:
 
             self._verificar_cancelamento()
 
-            self.checkpoint_service.marcar_atualizacao_bases()
+            if selecao_destinos.esta_completa:
+                self.checkpoint_service.marcar_atualizacao_bases()
 
             self._emitir(
                 self.EVENTO_ATUALIZAR
@@ -472,10 +490,14 @@ class AtualizacaoBasesService:
             self._emitir(
                 self.EVENTO_CONCLUIDO,
                 mensagem=(
-                    "Bases atualizadas com sucesso no histórico, "
-                    "nas pastas de teste e em Bancos_Atuais."
+                    "Destinos selecionados atualizados com sucesso: "
+                    f"{selecao_destinos.resumo()}."
                 ),
-                resultado=resultado
+                resultado=resultado,
+                selecao_destinos=selecao_destinos.para_dict(),
+                checkpoint_completo=(
+                    selecao_destinos.esta_completa
+                )
             )
 
         except ProcessamentoBasesPendente as pendencia:
@@ -556,15 +578,17 @@ class AtualizacaoBasesService:
                     ()
                 )
             )
+            selecao_destinos = SelecaoDestinosBases.de_dict(
+                pendencia.get("selecao_destinos")
+            )
 
             resultado = (
                 self.rotina_service
-                .processar_correcao_manual(
+                .processar_correcao_manual_selecionada(
                     caminho_zip=caminho_zip,
                     agravos_pendentes=agravos_pendentes,
+                    selecao_destinos=selecao_destinos,
                     data_referencia=data_referencia,
-                    atualizar_pastas_teste=True,
-                    atualizar_bancos_atuais=True,
                     ao_evento=(
                         self._receber_evento_rotina
                     ),
@@ -577,9 +601,10 @@ class AtualizacaoBasesService:
             self._verificar_cancelamento()
 
             if resultado["concluida"]:
-                self.checkpoint_service.marcar_atualizacao_bases(
-                    data_referencia=data_referencia
-                )
+                if selecao_destinos.esta_completa:
+                    self.checkpoint_service.marcar_atualizacao_bases(
+                        data_referencia=data_referencia
+                    )
 
                 with self._lock:
                     self._pendencia_atual = None
@@ -594,7 +619,13 @@ class AtualizacaoBasesService:
                         "rotina de Bases está completa."
                     ),
                     resultado=resultado,
-                    correcao_manual=True
+                    correcao_manual=True,
+                    selecao_destinos=(
+                        selecao_destinos.para_dict()
+                    ),
+                    checkpoint_completo=(
+                        selecao_destinos.esta_completa
+                    )
                 )
                 return
 
@@ -636,7 +667,10 @@ class AtualizacaoBasesService:
                 "correcao_manual_disponivel":
                     bool(pendentes_restantes),
                 "data_referencia":
-                    data_referencia.isoformat()
+                    data_referencia.isoformat(),
+                "selecao_destinos": (
+                    selecao_destinos.para_dict()
+                )
             }
 
             with self._lock:

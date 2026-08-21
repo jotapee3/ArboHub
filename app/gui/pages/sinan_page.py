@@ -25,6 +25,9 @@ from app.services.consulta_obitos_service import (
 from app.services.notificacoes_service import (
     NotificacoesService
 )
+from app.services.selecao_destinos_bases import (
+    SelecaoDestinosBases
+)
 
 
 class SinanPage(ctk.CTkFrame):
@@ -116,10 +119,10 @@ class SinanPage(ctk.CTkFrame):
         ),
         (
             AtualizacaoBasesService.ETAPA_PASTAS_TESTE,
-            "Pastas de teste",
+            "Bases DBF",
             (
-                "Atualizar os destinos configurados de Dengue e "
-                "Chikungunya com backup e SHA-256."
+                "Atualizar somente os agravos escolhidos, com "
+                "backup e validação SHA-256."
             )
         ),
         (
@@ -181,6 +184,25 @@ class SinanPage(ctk.CTkFrame):
             "dengue": False,
             "chikungunya": False
         }
+        self.agravos_necessarios_execucao_bases = {
+            "dengue",
+            "chikungunya"
+        }
+        self.selecao_historico_var = ctk.BooleanVar(
+            value=True
+        )
+        self.selecao_bases_dbf_var = ctk.BooleanVar(
+            value=True
+        )
+        self.selecao_dengue_dbf_var = ctk.BooleanVar(
+            value=True
+        )
+        self.selecao_chikungunya_dbf_var = ctk.BooleanVar(
+            value=True
+        )
+        self.selecao_bancos_atuais_var = ctk.BooleanVar(
+            value=True
+        )
         self._correcao_manual_bases_habilitada = False
         self._agravos_pendentes_bases: list[str] = []
         self._dados_pendencia_bases: dict | None = None
@@ -1519,6 +1541,14 @@ class SinanPage(ctk.CTkFrame):
                 "cor_titulo": Colors.TEXT_PRIMARY,
                 "cor_detalhe": Colors.TEXT_SECONDARY
             },
+            "ignorado": {
+                "simbolo": "–",
+                "fundo": Colors.BUTTON,
+                "borda": Colors.BORDER,
+                "cor_simbolo": Colors.TEXT_MUTED,
+                "cor_titulo": Colors.TEXT_SECONDARY,
+                "cor_detalhe": Colors.TEXT_MUTED
+            },
             "erro": {
                 "simbolo": "✕",
                 "fundo": Colors.BUTTON,
@@ -1559,7 +1589,11 @@ class SinanPage(ctk.CTkFrame):
             or (
                 "Etapa concluída."
                 if estado == "concluido"
-                else componentes["detalhe_padrao"]
+                else (
+                    "Etapa não incluída nesta execução."
+                    if estado == "ignorado"
+                    else componentes["detalhe_padrao"]
+                )
             )
         )
 
@@ -3089,7 +3123,7 @@ class SinanPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             cabecalho,
-            text="Destinos da atualização",
+            text="Destinos desta atualização",
             font=ctk.CTkFont(
                 family="Segoe UI",
                 size=16,
@@ -3106,8 +3140,8 @@ class SinanPage(ctk.CTkFrame):
         self.label_descricao_destinos_bases = ctk.CTkLabel(
             cabecalho,
             text=(
-                "A mesma dupla validada é distribuída para "
-                "o histórico, as pastas de teste e os bancos atuais."
+                "Escolha onde os arquivos validados serão "
+                "atualizados nesta execução."
             ),
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -3122,6 +3156,28 @@ class SinanPage(ctk.CTkFrame):
             column=0,
             sticky="ew",
             pady=(3, 0)
+        )
+
+        self.label_resumo_selecao_bases = ctk.CTkLabel(
+            cabecalho,
+            text="",
+            width=190,
+            height=28,
+            corner_radius=7,
+            fg_color=Colors.SURFACE_SELECTED,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10,
+                weight="bold"
+            ),
+            text_color=Colors.PRIMARY
+        )
+        self.label_resumo_selecao_bases.grid(
+            row=0,
+            column=1,
+            rowspan=2,
+            sticky="e",
+            padx=(12, 0)
         )
 
     def criar_cards_destinos_bases(self):
@@ -3141,6 +3197,8 @@ class SinanPage(ctk.CTkFrame):
             self._criar_card_destino_bases(
                 master=container,
                 coluna=0,
+                chave="historico",
+                variavel_ativo=self.selecao_historico_var,
                 icone="🗂️",
                 titulo="Histórico",
                 descricao=(
@@ -3164,22 +3222,25 @@ class SinanPage(ctk.CTkFrame):
             self._criar_card_destino_bases(
                 master=container,
                 coluna=1,
-                icone="🧪",
-                titulo="Pastas de teste",
+                chave="bases_dbf",
+                variavel_ativo=self.selecao_bases_dbf_var,
+                icone="🗃️",
+                titulo="Bases DBF",
                 descricao=(
-                    "DBFs instalados nos destinos configurados para "
-                    "Dengue e Chikungunya, com backup e SHA-256."
+                    "Escolha quais bases deseja atualizar nas "
+                    "pastas definitivas."
                 ),
                 atalhos=(
                     (
-                        "📂 Dengue (AB1)",
+                        "📂 Dengue DBF",
                         "teste_ab1"
                     ),
                     (
-                        "📂 Chikungunya (AB2)",
+                        "📂 Chiku DBF",
                         "teste_ab2"
                     )
-                )
+                ),
+                permitir_selecao_agravos=True
             )
         )
 
@@ -3187,6 +3248,8 @@ class SinanPage(ctk.CTkFrame):
             self._criar_card_destino_bases(
                 master=container,
                 coluna=2,
+                chave="bancos_atuais",
+                variavel_ativo=self.selecao_bancos_atuais_var,
                 icone="🗃️",
                 titulo="Bancos atuais",
                 descricao=(
@@ -3212,15 +3275,20 @@ class SinanPage(ctk.CTkFrame):
             "<Configure>",
             self.ajustar_layout_destinos_bases
         )
+        self._atualizar_visual_selecao_destinos()
+        self._atualizar_controles_bases()
 
     def _criar_card_destino_bases(
         self,
         master,
         coluna: int,
+        chave: str,
+        variavel_ativo,
         icone: str,
         titulo: str,
         descricao: str,
-        atalhos: tuple[tuple[str, str], ...]
+        atalhos: tuple[tuple[str, str], ...],
+        permitir_selecao_agravos: bool = False
     ) -> dict:
         card = ctk.CTkFrame(
             master,
@@ -3244,6 +3312,7 @@ class SinanPage(ctk.CTkFrame):
             )
         )
         card.grid_columnconfigure(1, weight=1)
+        card.grid_columnconfigure(2, weight=0)
 
         icone_frame = ctk.CTkFrame(
             card,
@@ -3291,8 +3360,37 @@ class SinanPage(ctk.CTkFrame):
             row=0,
             column=1,
             sticky="sw",
-            padx=(0, 16),
+            padx=(0, 8),
             pady=(16, 1)
+        )
+
+        seletor_ativo = ctk.CTkSwitch(
+            card,
+            text="",
+            variable=variavel_ativo,
+            command=(
+                lambda destino=chave:
+                    self._ao_alterar_selecao_destino(
+                        destino
+                    )
+            ),
+            width=42,
+            height=24,
+            switch_width=42,
+            switch_height=22,
+            corner_radius=12,
+            fg_color=Colors.BUTTON,
+            progress_color=Colors.PRIMARY,
+            button_color=Colors.CONTROL_KNOB,
+            button_hover_color=Colors.TEXT_PRIMARY
+        )
+        seletor_ativo.grid(
+            row=0,
+            column=2,
+            rowspan=2,
+            sticky="ne",
+            padx=(4, 16),
+            pady=(18, 0)
         )
 
         label_status = ctk.CTkLabel(
@@ -3329,11 +3427,82 @@ class SinanPage(ctk.CTkFrame):
         label_descricao.grid(
             row=2,
             column=0,
-            columnspan=2,
+            columnspan=3,
             sticky="ew",
             padx=16,
             pady=(2, 12)
         )
+
+        container_selecao = ctk.CTkFrame(
+            card,
+            fg_color="transparent",
+            height=36
+        )
+        container_selecao.grid(
+            row=3,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=16,
+            pady=(0, 12)
+        )
+        container_selecao.grid_propagate(False)
+        botoes_agravos: dict[str, object] = {}
+
+        if permitir_selecao_agravos:
+            container_selecao.grid_columnconfigure(
+                (0, 1),
+                weight=1,
+                uniform=f"agravos_{coluna}"
+            )
+
+            for indice, (agravo, rotulo) in enumerate((
+                ("dengue", "Dengue"),
+                ("chikungunya", "Chikungunya")
+            )):
+                botao_agravo = ctk.CTkButton(
+                    container_selecao,
+                    text=rotulo,
+                    command=(
+                        lambda item=agravo:
+                            self._alternar_agravo_base_dbf(
+                                item
+                            )
+                    ),
+                    height=34,
+                    corner_radius=7,
+                    border_width=1,
+                    font=ctk.CTkFont(
+                        family="Segoe UI",
+                        size=11,
+                        weight="bold"
+                    )
+                )
+                botao_agravo.grid(
+                    row=0,
+                    column=indice,
+                    sticky="ew",
+                    padx=(
+                        (0, 5)
+                        if indice == 0
+                        else (5, 0)
+                    )
+                )
+                botoes_agravos[agravo] = botao_agravo
+        else:
+            ctk.CTkLabel(
+                container_selecao,
+                text="Dengue + Chikungunya",
+                height=34,
+                corner_radius=7,
+                fg_color=Colors.SURFACE_HOVER,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=10,
+                    weight="bold"
+                ),
+                text_color=Colors.TEXT_MUTED
+            ).pack(fill="x")
 
         separador = ctk.CTkFrame(
             card,
@@ -3341,9 +3510,9 @@ class SinanPage(ctk.CTkFrame):
             fg_color=Colors.DIVIDER
         )
         separador.grid(
-            row=3,
+            row=4,
             column=0,
-            columnspan=2,
+            columnspan=3,
             sticky="ew",
             padx=16,
             pady=(0, 11)
@@ -3360,9 +3529,9 @@ class SinanPage(ctk.CTkFrame):
             text_color=Colors.TEXT_MUTED,
             anchor="w"
         ).grid(
-            row=4,
+            row=5,
             column=0,
-            columnspan=2,
+            columnspan=3,
             sticky="ew",
             padx=16,
             pady=(0, 7)
@@ -3373,9 +3542,9 @@ class SinanPage(ctk.CTkFrame):
             fg_color="transparent"
         )
         container_atalhos.grid(
-            row=5,
+            row=6,
             column=0,
-            columnspan=2,
+            columnspan=3,
             sticky="ew",
             padx=16,
             pady=(0, 16)
@@ -3435,11 +3604,199 @@ class SinanPage(ctk.CTkFrame):
             botoes_atalhos.append(botao)
 
         return {
+            "chave": chave,
             "frame": card,
             "status": label_status,
             "descricao": label_descricao,
-            "atalhos": botoes_atalhos
+            "atalhos": botoes_atalhos,
+            "switch": seletor_ativo,
+            "botoes_agravos": botoes_agravos
         }
+
+    def _ao_alterar_selecao_destino(
+        self,
+        destino: str
+    ):
+        if (
+            destino == "bases_dbf"
+            and self.selecao_bases_dbf_var.get()
+            and not (
+                self.selecao_dengue_dbf_var.get()
+                or self.selecao_chikungunya_dbf_var.get()
+            )
+        ):
+            self.selecao_dengue_dbf_var.set(True)
+            self.selecao_chikungunya_dbf_var.set(True)
+
+        self._atualizar_visual_selecao_destinos()
+        self._atualizar_controles_bases()
+
+    def _alternar_agravo_base_dbf(
+        self,
+        agravo: str
+    ):
+        if not self.selecao_bases_dbf_var.get():
+            return
+
+        variavel = (
+            self.selecao_dengue_dbf_var
+            if agravo == "dengue"
+            else self.selecao_chikungunya_dbf_var
+        )
+        variavel.set(not variavel.get())
+
+        if not (
+            self.selecao_dengue_dbf_var.get()
+            or self.selecao_chikungunya_dbf_var.get()
+        ):
+            self.selecao_bases_dbf_var.set(False)
+
+        self._atualizar_visual_selecao_destinos()
+        self._atualizar_controles_bases()
+
+    def _obter_selecao_destinos_bases(
+        self
+    ) -> SelecaoDestinosBases:
+        agravos: set[str] = set()
+
+        if self.selecao_bases_dbf_var.get():
+            if self.selecao_dengue_dbf_var.get():
+                agravos.add("dengue")
+
+            if self.selecao_chikungunya_dbf_var.get():
+                agravos.add("chikungunya")
+
+        return SelecaoDestinosBases(
+            atualizar_historico=bool(
+                self.selecao_historico_var.get()
+            ),
+            agravos_bases_dbf=frozenset(agravos),
+            atualizar_bancos_atuais=bool(
+                self.selecao_bancos_atuais_var.get()
+            )
+        )
+
+    def _atualizar_visual_selecao_destinos(self):
+        if not hasattr(self, "cards_destinos_bases"):
+            return
+
+        estados = {
+            "historico": bool(
+                self.selecao_historico_var.get()
+            ),
+            "bases_dbf": bool(
+                self.selecao_bases_dbf_var.get()
+            ),
+            "bancos_atuais": bool(
+                self.selecao_bancos_atuais_var.get()
+            )
+        }
+
+        for card in self.cards_destinos_bases:
+            ativo = estados[card["chave"]]
+            card["frame"].configure(
+                border_color=(
+                    Colors.PRIMARY
+                    if ativo
+                    else Colors.BORDER
+                )
+            )
+            card["status"].configure(
+                text=(
+                    "✓ Incluído"
+                    if ativo
+                    else "○ Não incluído"
+                ),
+                text_color=(
+                    Colors.SUCCESS
+                    if ativo
+                    else Colors.TEXT_MUTED
+                )
+            )
+
+        card_bases = self.card_destino_testes
+        bases_ativa = estados["bases_dbf"]
+        selecoes = {
+            "dengue": bool(
+                self.selecao_dengue_dbf_var.get()
+            ),
+            "chikungunya": bool(
+                self.selecao_chikungunya_dbf_var.get()
+            )
+        }
+
+        for agravo, botao in (
+            card_bases["botoes_agravos"].items()
+        ):
+            selecionado = bases_ativa and selecoes[agravo]
+            botao.configure(
+                text=(
+                    ("✓ " if selecionado else "")
+                    + (
+                        "Dengue"
+                        if agravo == "dengue"
+                        else "Chikungunya"
+                    )
+                ),
+                state=("normal" if bases_ativa else "disabled"),
+                fg_color=(
+                    Colors.PRIMARY
+                    if selecionado
+                    else "transparent"
+                ),
+                hover_color=(
+                    Colors.PRIMARY_HOVER
+                    if selecionado
+                    else Colors.SURFACE_HOVER
+                ),
+                border_color=(
+                    Colors.PRIMARY
+                    if selecionado
+                    else Colors.BORDER
+                ),
+                text_color=(
+                    Colors.TEXT_ON_PRIMARY
+                    if selecionado
+                    else Colors.TEXT_SECONDARY
+                )
+            )
+
+        try:
+            selecao = self._obter_selecao_destinos_bases()
+            resumo = selecao.resumo()
+        except ValueError:
+            resumo = "Nenhum destino selecionado"
+
+        self.label_resumo_selecao_bases.configure(
+            text=resumo,
+            fg_color=(
+                Colors.SURFACE_SELECTED
+                if resumo != "Nenhum destino selecionado"
+                else Colors.SURFACE_HOVER
+            ),
+            text_color=(
+                Colors.PRIMARY
+                if resumo != "Nenhum destino selecionado"
+                else Colors.TEXT_MUTED
+            )
+        )
+
+    def _definir_estado_seletores_destinos(
+        self,
+        habilitados: bool
+    ):
+        estado = "normal" if habilitados else "disabled"
+
+        for card in self.cards_destinos_bases:
+            card["switch"].configure(state=estado)
+
+        if habilitados:
+            self._atualizar_visual_selecao_destinos()
+        else:
+            for botao in (
+                self.card_destino_testes["botoes_agravos"].values()
+            ):
+                botao.configure(state="disabled")
 
     def _obter_pastas_destino_bases(
         self
@@ -3704,6 +4061,10 @@ class SinanPage(ctk.CTkFrame):
                 "✔️ Atualizado",
                 Colors.SUCCESS
             ),
+            "ignorado": (
+                "○ Não incluído",
+                Colors.TEXT_MUTED
+            ),
             "erro": (
                 "× Falha na atualização",
                 Colors.ERROR
@@ -3718,6 +4079,22 @@ class SinanPage(ctk.CTkFrame):
             estado,
             apresentacao["aguardando"]
         )
+
+        if estado == "aguardando" and "chave" in card:
+            selecoes = {
+                "historico": bool(
+                    self.selecao_historico_var.get()
+                ),
+                "bases_dbf": bool(
+                    self.selecao_bases_dbf_var.get()
+                ),
+                "bancos_atuais": bool(
+                    self.selecao_bancos_atuais_var.get()
+                )
+            }
+            ativo = selecoes.get(card["chave"], False)
+            texto = "✓ Incluído" if ativo else "○ Não incluído"
+            cor = Colors.SUCCESS if ativo else Colors.TEXT_MUTED
 
         if mensagem and estado in {
             "erro",
@@ -3738,7 +4115,7 @@ class SinanPage(ctk.CTkFrame):
         concluidas = sum(
             1
             for estado in estados.values()
-            if estado == "concluido"
+            if estado in {"concluido", "ignorado"}
         )
 
         self.barra_resumo_bases.set(
@@ -3800,7 +4177,7 @@ class SinanPage(ctk.CTkFrame):
         ]
 
         if all(
-            estado == "concluido"
+            estado in {"concluido", "ignorado"}
             for estado in estados_arquivos
         ):
             self.label_arquivos_bases.configure(
@@ -4023,7 +4400,10 @@ class SinanPage(ctk.CTkFrame):
             conector.configure(
                 fg_color=(
                     Colors.SUCCESS
-                    if estados.get(etapa) == "concluido"
+                    if estados.get(etapa) in {
+                        "concluido",
+                        "ignorado"
+                    }
                     else Colors.BORDER
                 )
             )
@@ -4796,7 +5176,7 @@ class SinanPage(ctk.CTkFrame):
                 "iniciada": "executando",
                 "em_andamento": "executando",
                 "concluida": "concluido",
-                "ignorada": "concluido"
+                "ignorada": "ignorado"
             }
 
             estado_visual = conversao.get(
@@ -4822,7 +5202,11 @@ class SinanPage(ctk.CTkFrame):
                 text_color=(
                     Colors.SUCCESS
                     if estado_visual == "concluido"
-                    else Colors.PRIMARY
+                    else (
+                        Colors.TEXT_MUTED
+                        if estado_visual == "ignorado"
+                        else Colors.PRIMARY
+                    )
                 )
             )
             self.registrar_operacao(
@@ -4853,9 +5237,15 @@ class SinanPage(ctk.CTkFrame):
                 "mensagem",
                 "Atualização das bases concluída."
             )
+            resultado = evento.get("resultado", {})
+            selecao = SelecaoDestinosBases.de_dict(
+                evento.get("selecao_destinos")
+            )
 
-            self.estado_arquivos_bases["dengue"] = True
-            self.estado_arquivos_bases["chikungunya"] = True
+            for agravo in resultado.get("agravos", {}):
+                if agravo in self.estado_arquivos_bases:
+                    self.estado_arquivos_bases[agravo] = True
+
             self._atualizar_indicador_arquivos_bases()
             self._ocultar_alerta_processamento_bases()
 
@@ -4864,11 +5254,6 @@ class SinanPage(ctk.CTkFrame):
             )
             self.estado_bases_atual = "concluido"
             self.mensagem_bases_atual = mensagem
-
-            for etapa in self.estados_etapas_bases:
-                self.estados_etapas_bases[
-                    etapa
-                ] = "concluido"
 
             self.mensagens_etapas_bases[
                 AtualizacaoBasesService.ETAPA_FINALIZACAO
@@ -4882,20 +5267,36 @@ class SinanPage(ctk.CTkFrame):
             self.atualizar_painel_rotina()
             self.atualizar_linha_tempo_bases()
             self._atualizar_controles_bases()
+            self.after(
+                200,
+                self._atualizar_controles_bases
+            )
 
             self.registrar_operacao(
                 mensagem
             )
             self.notificacoes_service.tocar_conclusao()
 
+            itens_concluidos = "\n".join(
+                f"• {rotulo}"
+                for rotulo in selecao.rotulos_resumo()
+            )
+            complemento = (
+                ""
+                if selecao.esta_completa
+                else (
+                    "\n\nOs destinos não selecionados "
+                    "permaneceram inalterados."
+                )
+            )
+
             mostrar_dialogo_arbohub(
                 master=self.winfo_toplevel(),
-                titulo="Bases atualizadas",
+                titulo="Seleção atualizada",
                 mensagem=(
-                    "A rotina foi concluída com sucesso.\n\n"
-                    "Os ZIPs foram validados no histórico, "
-                    "as pastas de teste foram atualizadas e "
-                    "Bancos_Atuais recebeu a nova dupla."
+                    "A rotina foi concluída com sucesso:\n\n"
+                    f"{itens_concluidos}"
+                    f"{complemento}"
                 ),
                 tipo="sucesso",
                 texto_botao="Concluir"
@@ -5196,8 +5597,28 @@ class SinanPage(ctk.CTkFrame):
         chikungunya = self.estado_arquivos_bases[
             "chikungunya"
         ]
+        necessarios = self.agravos_necessarios_execucao_bases
 
-        if dengue and chikungunya:
+        if necessarios == {"dengue"}:
+            texto = (
+                "✔️ Dengue disponível"
+                if dengue
+                else "○ Dengue pendente"
+            )
+            cor = Colors.SUCCESS if dengue else Colors.TEXT_MUTED
+        elif necessarios == {"chikungunya"}:
+            texto = (
+                "✔️ Chikungunya disponível"
+                if chikungunya
+                else "○ Chikungunya pendente"
+            )
+            cor = (
+                Colors.SUCCESS
+                if chikungunya
+                else Colors.TEXT_MUTED
+            )
+
+        elif dengue and chikungunya:
             texto = "✔️ Dengue e Chikungunya disponíveis"
             cor = Colors.SUCCESS
         elif dengue:
@@ -5517,6 +5938,7 @@ class SinanPage(ctk.CTkFrame):
         )
 
         if executando:
+            self._definir_estado_seletores_destinos(False)
             self.botao_baixar.configure(
                 text="● Rotina em andamento",
                 state="disabled"
@@ -5538,16 +5960,29 @@ class SinanPage(ctk.CTkFrame):
         atualizada_hoje = bool(
             rotina["atualizacao_bases"]
         )
+        try:
+            self._obter_selecao_destinos_bases()
+            selecao_valida = True
+        except ValueError:
+            selecao_valida = False
+
+        self._definir_estado_seletores_destinos(
+            not atualizada_hoje
+        )
 
         self.botao_baixar.configure(
             text=(
                 "✓ Atualizada hoje"
                 if atualizada_hoje
-                else "▶ Iniciar rotina"
+                else (
+                    "▶ Atualizar seleção"
+                    if selecao_valida
+                    else "Selecione um destino"
+                )
             ),
             state=(
                 "disabled"
-                if atualizada_hoje
+                if atualizada_hoje or not selecao_valida
                 else "normal"
             )
         )
@@ -5708,7 +6143,7 @@ class SinanPage(ctk.CTkFrame):
                 "Não serão apagados:\n"
                 "• números de solicitação;\n"
                 "• ZIPs do histórico;\n"
-                "• DBFs das pastas de teste;\n"
+                "• arquivos das Bases DBF;\n"
                 "• arquivos de Bancos_Atuais;\n"
                 "• verificação de óbitos.\n\n"
                 "Na próxima execução, o ArboHub reutilizará os "
@@ -6029,9 +6464,30 @@ class SinanPage(ctk.CTkFrame):
             return
 
         try:
+            selecao_destinos = (
+                self._obter_selecao_destinos_bases()
+            )
+        except ValueError as erro:
+            mostrar_dialogo_arbohub(
+                master=self.winfo_toplevel(),
+                titulo="Selecione um destino",
+                mensagem=str(erro),
+                tipo="aviso",
+                texto_botao="Entendi"
+            )
+            return
+
+        resumo_selecao = "\n".join(
+            f"• {rotulo}"
+            for rotulo in selecao_destinos.rotulos_resumo()
+        )
+
+        try:
             estado = (
                 self.atualizacao_bases_service
-                .avaliar_estado_do_dia()
+                .avaliar_estado_do_dia(
+                    selecao_destinos=selecao_destinos
+                )
             )
         except Exception as erro:
             mostrar_dialogo_arbohub(
@@ -6061,7 +6517,9 @@ class SinanPage(ctk.CTkFrame):
                     "seja necessário, o login poderá continuar "
                     "manualmente. Depois, serão enviadas somente as solicitações "
                     "faltantes. Cada número será salvo "
-                    "imediatamente após aparecer na tela."
+                    "imediatamente após aparecer na tela.\n\n"
+                    "Destinos selecionados:\n"
+                    f"{resumo_selecao}"
                 ),
                 texto_confirmar="Solicitar e continuar",
                 texto_cancelar="Cancelar",
@@ -6083,7 +6541,9 @@ class SinanPage(ctk.CTkFrame):
                     "ou baixados.\n\n"
                     "O SINAN será aberto. O ArboHub tentará o login "
                     "automático quando configurado e manterá o modo "
-                    "manual disponível."
+                    "manual disponível.\n\n"
+                    "Destinos selecionados:\n"
+                    f"{resumo_selecao}"
                 ),
                 texto_confirmar="Abrir o SINAN",
                 texto_cancelar="Cancelar"
@@ -6101,8 +6561,8 @@ class SinanPage(ctk.CTkFrame):
                     "já existem.\n\n"
                     "Nenhuma nova solicitação será criada e o "
                     "SINAN não precisará ser aberto. O ArboHub "
-                    "validará o histórico e atualizará novamente "
-                    "as pastas de teste e Bancos_Atuais."
+                    "validará os arquivos e atualizará somente:\n\n"
+                    f"{resumo_selecao}"
                 ),
                 texto_confirmar="Executar novamente",
                 texto_cancelar="Cancelar"
@@ -6119,10 +6579,26 @@ class SinanPage(ctk.CTkFrame):
             for etapa in self.ETAPAS_FLUXO_BASES
         }
         self.mensagens_etapas_bases = {}
+        etapas_ignoradas = {
+            AtualizacaoBasesService.ETAPA_HISTORICO:
+                not selecao_destinos.atualizar_historico,
+            AtualizacaoBasesService.ETAPA_PASTAS_TESTE:
+                not bool(selecao_destinos.agravos_bases_dbf),
+            AtualizacaoBasesService.ETAPA_BANCOS_ATUAIS:
+                not selecao_destinos.atualizar_bancos_atuais
+        }
+
+        for etapa, ignorada in etapas_ignoradas.items():
+            if ignorada:
+                self.estados_etapas_bases[etapa] = "ignorado"
+
         self.estado_arquivos_bases = {
             "dengue": False,
             "chikungunya": False
         }
+        self.agravos_necessarios_execucao_bases = set(
+            selecao_destinos.agravos_necessarios
+        )
         self._ocultar_alerta_processamento_bases()
         self._atualizar_indicador_arquivos_bases()
 
@@ -6130,7 +6606,8 @@ class SinanPage(ctk.CTkFrame):
             self.atualizacao_bases_service.iniciar(
                 solicitacoes_autorizadas=(
                     autorizacao_solicitacoes
-                )
+                ),
+                selecao_destinos=selecao_destinos
             )
         )
 
@@ -6200,9 +6677,14 @@ class SinanPage(ctk.CTkFrame):
             return
 
         try:
+            selecao_destinos = (
+                self._obter_selecao_destinos_bases()
+            )
             estado = (
                 self.atualizacao_bases_service
-                .avaliar_estado_do_dia()
+                .avaliar_estado_do_dia(
+                    selecao_destinos=selecao_destinos
+                )
             )
         except Exception as erro:
             self.label_status_base.configure(
@@ -6214,24 +6696,21 @@ class SinanPage(ctk.CTkFrame):
             )
             return
 
-        lote_completo = estado["lote_completo"]
         lote_parcial = estado["lote_parcial"]
 
-        if (
-            lote_completo is not None
-            and estado["historico_completo"]
-        ):
+        if not estado["requer_navegador"]:
             mensagem = (
-                "Solicitações e ZIPs válidos de hoje já estão "
-                "disponíveis. A rotina pode reutilizar o histórico "
-                "e atualizar os destinos sem abrir o SINAN."
+                "Os arquivos exigidos pela seleção já estão "
+                "disponíveis. A rotina pode validá-los e atualizar "
+                "os destinos sem abrir o SINAN."
             )
 
-        elif lote_completo is not None:
+        elif not estado["requer_novas_solicitacoes"]:
             mensagem = (
-                "As solicitações de hoje já estão salvas. "
+                "As solicitações necessárias já estão salvas. "
                 "O SINAN será aberto para acompanhar o "
-                "processamento e baixar os ZIPs."
+                "processamento e baixar somente os arquivos "
+                "selecionados."
             )
 
         elif lote_parcial is not None:
@@ -6245,10 +6724,14 @@ class SinanPage(ctk.CTkFrame):
             )
 
         else:
+            faltantes = ", ".join(
+                estado["solicitacoes_faltantes"]
+            )
             mensagem = (
-                "Ainda não existem solicitações para hoje. "
+                "Ainda faltam solicitações para a seleção: "
+                f"{faltantes}. "
                 "Ao iniciar, o ArboHub solicitará autorização "
-                "antes de criar Dengue e Chikungunya no SINAN."
+                "antes de criá-las no SINAN."
             )
 
         self.label_status_base.configure(
@@ -6256,9 +6739,14 @@ class SinanPage(ctk.CTkFrame):
             text_color=Colors.TEXT_SECONDARY
         )
 
-        if lote_completo is not None:
+        if not estado["requer_navegador"]:
             self.label_solicitacoes_bases.configure(
-                text="✔️ Solicitações do dia prontas",
+                text="✔️ Arquivos de origem prontos",
+                text_color=Colors.SUCCESS
+            )
+        elif not estado["requer_novas_solicitacoes"]:
+            self.label_solicitacoes_bases.configure(
+                text="✔️ Solicitações necessárias prontas",
                 text_color=Colors.SUCCESS
             )
         elif lote_parcial is not None:
@@ -6272,7 +6760,10 @@ class SinanPage(ctk.CTkFrame):
                 text_color=Colors.TEXT_MUTED
             )
 
-        if estado["historico_completo"]:
+        if (
+            selecao_destinos.atualizar_historico
+            and estado["historico_completo"]
+        ):
             self.label_arquivos_bases.configure(
                 text="✔️ ZIPs do dia disponíveis",
                 text_color=Colors.SUCCESS
@@ -6281,7 +6772,7 @@ class SinanPage(ctk.CTkFrame):
                 self.card_destino_historico,
                 "concluido"
             )
-        else:
+        elif selecao_destinos.atualizar_historico:
             self.label_arquivos_bases.configure(
                 text="○ Downloads pendentes",
                 text_color=Colors.TEXT_MUTED
@@ -6297,6 +6788,11 @@ class SinanPage(ctk.CTkFrame):
                     self.card_destino_historico,
                     "aguardando"
                 )
+        else:
+            self._aplicar_estado_card_destino_bases(
+                self.card_destino_historico,
+                "ignorado"
+            )
 
         self._atualizar_controles_bases()
 

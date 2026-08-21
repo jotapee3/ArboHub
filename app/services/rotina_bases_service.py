@@ -15,6 +15,9 @@ from app.services.arquivos_exportacao_dbf_service import (
 from app.services.exportacao_dbf_service import (
     ExportacaoDbfService
 )
+from app.services.selecao_destinos_bases import (
+    SelecaoDestinosBases
+)
 
 
 class RotinaBasesCancelada(RuntimeError):
@@ -121,7 +124,8 @@ class RotinaBasesService:
 
     def avaliar_estado_do_dia(
         self,
-        data_referencia: date | None = None
+        data_referencia: date | None = None,
+        selecao_destinos: SelecaoDestinosBases | None = None
     ) -> dict[str, object]:
         """
         Avalia o que será necessário antes de abrir o navegador.
@@ -131,15 +135,21 @@ class RotinaBasesService:
         - os ZIPs históricos do dia ainda não estão completos.
         """
 
-        data_referencia = (
-            data_referencia
-            or date.today()
+        data_referencia = data_referencia or date.today()
+        selecao = (
+            selecao_destinos
+            or SelecaoDestinosBases.completa()
         )
 
         self.arquivos_service.validar_destinos_operacionais(
-            incluir_historico=True,
-            incluir_pastas_teste=True,
-            incluir_bancos_atuais=True
+            incluir_historico=selecao.atualizar_historico,
+            incluir_pastas_teste=bool(
+                selecao.agravos_bases_dbf
+            ),
+            incluir_bancos_atuais=(
+                selecao.atualizar_bancos_atuais
+            ),
+            agravos_pastas_teste=selecao.agravos_bases_dbf
         )
 
         lote_completo = (
@@ -160,48 +170,37 @@ class RotinaBasesService:
             )
 
         caminhos_historico = {
-            "dengue":
+            agravo:
                 self.arquivos_service.caminho_historico(
-                    agravo=(
-                        ArquivosExportacaoDbfService
-                        .AGRAVO_DENGUE
-                    ),
-                    data_referencia=data_referencia
-                ),
-            "chikungunya":
-                self.arquivos_service.caminho_historico(
-                    agravo=(
-                        ArquivosExportacaoDbfService
-                        .AGRAVO_CHIKUNGUNYA
-                    ),
+                    agravo=agravo,
                     data_referencia=data_referencia
                 )
+            for agravo in sorted(selecao.agravos_necessarios)
         }
 
-        historico_completo = all(
-            caminho.exists()
-            for caminho in caminhos_historico.values()
-        )
+        fontes_validas = {
+            agravo: self._fonte_historica_valida(
+                agravo=agravo,
+                data_referencia=data_referencia
+            )
+            for agravo in caminhos_historico
+        }
+        historico_completo = all(fontes_validas.values())
 
-        solicitacoes_faltantes = []
-
-        if lote_completo is None:
+        lote_disponivel = lote_completo or lote_parcial
+        agravos_sem_fonte = {
+            agravo
+            for agravo, caminho in caminhos_historico.items()
+            if not fontes_validas[agravo]
+        }
+        solicitacoes_faltantes = [
+            agravo
+            for agravo in sorted(agravos_sem_fonte)
             if (
-                lote_parcial is None
-                or lote_parcial["dengue"] is None
-            ):
-                solicitacoes_faltantes.append(
-                    ExportacaoDbfService.AGRAVO_DENGUE
-                )
-
-            if (
-                lote_parcial is None
-                or lote_parcial["chikungunya"] is None
-            ):
-                solicitacoes_faltantes.append(
-                    ExportacaoDbfService
-                    .AGRAVO_CHIKUNGUNYA
-                )
+                lote_disponivel is None
+                or lote_disponivel.get(agravo) is None
+            )
+        ]
 
         requer_novas_solicitacoes = bool(
             solicitacoes_faltantes
@@ -212,6 +211,13 @@ class RotinaBasesService:
                 data_referencia.isoformat(),
             "lote_completo": lote_completo,
             "lote_parcial": lote_parcial,
+            "lote_disponivel": lote_disponivel,
+            "agravos_necessarios": tuple(
+                sorted(selecao.agravos_necessarios)
+            ),
+            "agravos_sem_fonte": tuple(
+                sorted(agravos_sem_fonte)
+            ),
             "solicitacoes_faltantes":
                 solicitacoes_faltantes,
             "requer_novas_solicitacoes":
@@ -219,11 +225,26 @@ class RotinaBasesService:
             "historico": caminhos_historico,
             "historico_completo":
                 historico_completo,
-            "requer_navegador": (
-                requer_novas_solicitacoes
-                or not historico_completo
-            )
+            "requer_navegador": bool(agravos_sem_fonte),
+            "selecao_destinos": selecao.para_dict()
         }
+
+    def _fonte_historica_valida(
+        self,
+        agravo: str,
+        data_referencia: date
+    ) -> bool:
+        """Confirma que o ZIP histórico existe e contém o DBF esperado."""
+
+        caminho = self.arquivos_service.caminho_historico(
+            agravo=agravo,
+            data_referencia=data_referencia
+        )
+
+        return self.arquivos_service.zip_contem_dbf_do_agravo(
+            caminho_zip=caminho,
+            agravo=agravo
+        )
 
     def garantir_solicitacoes_do_dia(
         self,
@@ -606,6 +627,861 @@ class RotinaBasesService:
             "novas_solicitacoes":
                 novas_solicitacoes
         }
+
+    def garantir_solicitacoes_selecionadas(
+        self,
+        exportacao: ExportacaoBasesDbf | None,
+        selecao_destinos: SelecaoDestinosBases,
+        data_referencia: date | None = None,
+        solicitacoes_autorizadas: bool = False,
+        ao_evento: CallbackEvento | None = None,
+        cancelado: CallbackCancelamento | None = None
+    ) -> dict[str, object]:
+        """Garante somente as solicitações exigidas pela seleção."""
+
+        data_referencia = data_referencia or date.today()
+        estado = self.avaliar_estado_do_dia(
+            data_referencia=data_referencia,
+            selecao_destinos=selecao_destinos
+        )
+        agravos_sem_fonte = set(
+            estado["agravos_sem_fonte"]
+        )
+        lote = estado["lote_disponivel"]
+
+        if not agravos_sem_fonte:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_SOLICITACOES,
+                estado=self.ESTADO_IGNORADA,
+                mensagem=(
+                    "Os arquivos necessários já estão disponíveis. "
+                    "Nenhuma nova solicitação foi criada."
+                )
+            )
+            return {
+                "lote": lote,
+                "reutilizado": True,
+                "retomado_parcial": False,
+                "novas_solicitacoes": []
+            }
+
+        faltantes = [
+            agravo
+            for agravo in sorted(agravos_sem_fonte)
+            if lote is None or lote.get(agravo) is None
+        ]
+
+        if faltantes and not solicitacoes_autorizadas:
+            raise PermissionError(
+                "Há solicitações reais pendentes para hoje: "
+                f"{', '.join(faltantes)}. "
+                "A execução não foi autorizada."
+            )
+
+        if faltantes and exportacao is None:
+            raise RuntimeError(
+                "É necessário um navegador autenticado no SINAN "
+                "para criar as solicitações selecionadas."
+            )
+
+        if not faltantes:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_SOLICITACOES,
+                estado=self.ESTADO_IGNORADA,
+                mensagem=(
+                    "As solicitações necessárias já existem. "
+                    "Nenhuma nova solicitação foi criada."
+                )
+            )
+            return {
+                "lote": lote,
+                "reutilizado": True,
+                "retomado_parcial": lote is not None,
+                "novas_solicitacoes": []
+            }
+
+        self._verificar_cancelamento(cancelado)
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_SOLICITACOES,
+            estado=self.ESTADO_INICIADA,
+            mensagem="Preparando as solicitações selecionadas."
+        )
+
+        exportacao.abrir_solicitacao_exportacao_dbf()
+        lote_id = (
+            str(lote["lote_id"])
+            if lote is not None
+            else self.registro_service.criar_lote(
+                data_referencia=data_referencia
+            )
+        )
+        numero_dengue = (
+            str(lote["dengue"]["numero_solicitacao"])
+            if lote is not None and lote.get("dengue")
+            else None
+        )
+        formulario_preparado = False
+        novas_solicitacoes: list[str] = []
+
+        if ExportacaoDbfService.AGRAVO_DENGUE in faltantes:
+            self._verificar_cancelamento(cancelado)
+            preparacao = exportacao.preparar_primeira_exportacao(
+                data_referencia=data_referencia
+            )
+            formulario_preparado = True
+
+            if not preparacao["checkpoint_marcado"]:
+                raise RuntimeError(
+                    "O checkbox de identificação do paciente "
+                    "não permaneceu marcado para Dengue."
+                )
+
+            resultado = exportacao.solicitar_exportacao_dengue()
+            numero_dengue = str(resultado["numero_solicitacao"])
+            self.registro_service.salvar_solicitacao(
+                lote_id=lote_id,
+                agravo=ExportacaoDbfService.AGRAVO_DENGUE,
+                numero_solicitacao=numero_dengue
+            )
+            novas_solicitacoes.append(
+                ExportacaoDbfService.AGRAVO_DENGUE
+            )
+
+        if ExportacaoDbfService.AGRAVO_CHIKUNGUNYA in faltantes:
+            self._verificar_cancelamento(cancelado)
+
+            if not formulario_preparado:
+                preparacao = exportacao.preparar_primeira_exportacao(
+                    data_referencia=data_referencia
+                )
+
+                if not preparacao["checkpoint_marcado"]:
+                    raise RuntimeError(
+                        "O checkbox de identificação do paciente "
+                        "não permaneceu marcado."
+                    )
+
+            preparacao = exportacao.preparar_exportacao_chikungunya(
+                data_referencia=data_referencia
+            )
+
+            if not preparacao["checkpoint_marcado"]:
+                raise RuntimeError(
+                    "O checkbox de identificação do paciente "
+                    "não permaneceu marcado para Chikungunya."
+                )
+
+            resultado = exportacao.solicitar_exportacao_chikungunya(
+                numero_solicitacao_dengue=numero_dengue
+            )
+            self.registro_service.salvar_solicitacao(
+                lote_id=lote_id,
+                agravo=ExportacaoDbfService.AGRAVO_CHIKUNGUNYA,
+                numero_solicitacao=str(
+                    resultado["numero_solicitacao"]
+                )
+            )
+            novas_solicitacoes.append(
+                ExportacaoDbfService.AGRAVO_CHIKUNGUNYA
+            )
+
+        lote_atual = (
+            self.registro_service.obter_lote_completo_do_dia(
+                data_referencia=data_referencia
+            )
+            or self.registro_service.obter_lote_parcial_do_dia(
+                data_referencia=data_referencia
+            )
+        )
+
+        if lote_atual is None or any(
+            lote_atual.get(agravo) is None
+            for agravo in agravos_sem_fonte
+        ):
+            raise RuntimeError(
+                "As solicitações selecionadas foram processadas, "
+                "mas não puderam ser recuperadas."
+            )
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_SOLICITACOES,
+            estado=self.ESTADO_CONCLUIDA,
+            mensagem=(
+                "As solicitações necessárias para a seleção "
+                "estão prontas."
+            ),
+            dados={
+                "novas_solicitacoes": tuple(novas_solicitacoes)
+            }
+        )
+
+        return {
+            "lote": lote_atual,
+            "reutilizado": False,
+            "retomado_parcial": lote is not None,
+            "novas_solicitacoes": novas_solicitacoes
+        }
+
+    def executar_rotina_selecionada(
+        self,
+        selecao_destinos: SelecaoDestinosBases,
+        exportacao: ExportacaoBasesDbf | None = None,
+        data_referencia: date | None = None,
+        solicitacoes_autorizadas: bool = False,
+        intervalo_consulta_segundos: float = 15,
+        tempo_limite_segundos: float = 1200,
+        aviso_inicial_segundos: float = 60,
+        aviso_lento_segundos: float = 300,
+        aviso_reforcado_segundos: float = 600,
+        ao_evento: CallbackEvento | None = None,
+        cancelado: CallbackCancelamento | None = None,
+        modo_manual_ativo: CallbackCancelamento | None = None
+    ) -> dict[str, object]:
+        """Executa somente os destinos escolhidos pelo usuário."""
+
+        data_referencia = data_referencia or date.today()
+
+        self.arquivos_service.validar_destinos_operacionais(
+            incluir_historico=(
+                selecao_destinos.atualizar_historico
+            ),
+            incluir_pastas_teste=bool(
+                selecao_destinos.agravos_bases_dbf
+            ),
+            incluir_bancos_atuais=(
+                selecao_destinos.atualizar_bancos_atuais
+            ),
+            agravos_pastas_teste=(
+                selecao_destinos.agravos_bases_dbf
+            )
+        )
+        self._validar_tempos_acompanhamento(
+            intervalo_consulta_segundos=intervalo_consulta_segundos,
+            aviso_inicial_segundos=aviso_inicial_segundos,
+            aviso_lento_segundos=aviso_lento_segundos,
+            aviso_reforcado_segundos=aviso_reforcado_segundos,
+            tempo_limite_segundos=tempo_limite_segundos
+        )
+
+        resultado_solicitacoes = (
+            self.garantir_solicitacoes_selecionadas(
+                exportacao=exportacao,
+                selecao_destinos=selecao_destinos,
+                data_referencia=data_referencia,
+                solicitacoes_autorizadas=(
+                    solicitacoes_autorizadas
+                ),
+                ao_evento=ao_evento,
+                cancelado=cancelado
+            )
+        )
+        resultado = self._executar_destinos_selecionados(
+            selecao_destinos=selecao_destinos,
+            resultado_solicitacoes=resultado_solicitacoes,
+            exportacao=exportacao,
+            data_referencia=data_referencia,
+            intervalo_consulta_segundos=(
+                intervalo_consulta_segundos
+            ),
+            tempo_limite_segundos=tempo_limite_segundos,
+            aviso_inicial_segundos=aviso_inicial_segundos,
+            aviso_lento_segundos=aviso_lento_segundos,
+            aviso_reforcado_segundos=aviso_reforcado_segundos,
+            ao_evento=ao_evento,
+            cancelado=cancelado,
+            modo_manual_ativo=modo_manual_ativo
+        )
+        resultado["solicitacoes"] = resultado_solicitacoes
+        return resultado
+
+    def _executar_destinos_selecionados(
+        self,
+        selecao_destinos: SelecaoDestinosBases,
+        resultado_solicitacoes: dict[str, object],
+        exportacao: ExportacaoBasesDbf | None,
+        data_referencia: date,
+        intervalo_consulta_segundos: float,
+        tempo_limite_segundos: float,
+        aviso_inicial_segundos: float,
+        aviso_lento_segundos: float,
+        aviso_reforcado_segundos: float,
+        ao_evento: CallbackEvento | None,
+        cancelado: CallbackCancelamento | None,
+        modo_manual_ativo: CallbackCancelamento | None
+    ) -> dict[str, object]:
+        agravos = tuple(
+            sorted(selecao_destinos.agravos_necessarios)
+        )
+        rotulos = {
+            SelecaoDestinosBases.AGRAVO_DENGUE: "Dengue",
+            SelecaoDestinosBases.AGRAVO_CHIKUNGUNYA:
+                "Chikungunya"
+        }
+        caminhos_historico = {
+            agravo: self.arquivos_service.caminho_historico(
+                agravo=agravo,
+                data_referencia=data_referencia
+            )
+            for agravo in agravos
+        }
+        resultados: dict[str, dict[str, object]] = {}
+        agravos_processados: set[str] = set()
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=self.ESTADO_INICIADA,
+            mensagem="Preparando os arquivos selecionados."
+        )
+
+        for agravo in agravos:
+            caminho = caminhos_historico[agravo]
+
+            if not self._fonte_historica_valida(
+                agravo=agravo,
+                data_referencia=data_referencia
+            ):
+                continue
+
+            resultados[agravo] = self._distribuir_agravo_selecionado(
+                caminho_zip=caminho,
+                agravo=agravo,
+                rotulo=rotulos[agravo],
+                data_referencia=data_referencia,
+                selecao_destinos=selecao_destinos,
+                ao_evento=ao_evento,
+                reutilizado=True
+            )
+            agravos_processados.add(agravo)
+
+        agravos_pendentes = [
+            agravo
+            for agravo in agravos
+            if agravo not in agravos_processados
+        ]
+
+        if agravos_pendentes:
+            if exportacao is None:
+                raise RuntimeError(
+                    "É necessário abrir o SINAN para baixar: "
+                    + ", ".join(
+                        rotulos[agravo]
+                        for agravo in agravos_pendentes
+                    )
+                )
+
+            lote = resultado_solicitacoes.get("lote")
+
+            if not isinstance(lote, dict):
+                raise RuntimeError(
+                    "As solicitações necessárias não foram localizadas."
+                )
+
+            solicitacoes = {
+                agravo: str(
+                    lote[agravo]["numero_solicitacao"]
+                )
+                for agravo in agravos_pendentes
+                if lote.get(agravo) is not None
+            }
+
+            if len(solicitacoes) != len(agravos_pendentes):
+                raise RuntimeError(
+                    "Faltam números de solicitação para os "
+                    "arquivos selecionados."
+                )
+
+            exportacao.abrir_consulta_exportacoes_dbf()
+            pasta_lote = self.arquivos_service.criar_pasta_lote(
+                lote_id=str(lote["lote_id"]),
+                data_referencia=data_referencia
+            )
+            inicio_acompanhamento = monotonic()
+            alertas_emitidos: set[str] = set()
+
+            def ao_atualizar(
+                tentativa: int,
+                consultas: dict[str, dict[str, object]]
+            ):
+                for agravo, consulta in consultas.items():
+                    self.registro_service.atualizar_resultado_consulta(
+                        lote_id=str(lote["lote_id"]),
+                        agravo=agravo,
+                        resultado=consulta
+                    )
+
+                    if (
+                        agravo not in agravos_processados
+                        and self._resultado_exportacao_pronto(consulta)
+                    ):
+                        resultados[agravo] = (
+                            self._baixar_e_distribuir_selecionado(
+                                exportacao=exportacao,
+                                numero_solicitacao=solicitacoes[agravo],
+                                agravo=agravo,
+                                rotulo=rotulos[agravo],
+                                pasta_lote=pasta_lote,
+                                data_referencia=data_referencia,
+                                selecao_destinos=selecao_destinos,
+                                ao_evento=ao_evento,
+                                cancelado=cancelado
+                            )
+                        )
+                        agravos_processados.add(agravo)
+
+                pendentes = tuple(
+                    rotulos[agravo]
+                    for agravo in agravos_pendentes
+                    if agravo not in agravos_processados
+                )
+                concluidos = tuple(
+                    rotulos[agravo]
+                    for agravo in agravos
+                    if agravo in agravos_processados
+                )
+                self._emitir(
+                    ao_evento=ao_evento,
+                    etapa=self.ETAPA_PROCESSAMENTO,
+                    estado=self.ESTADO_EM_ANDAMENTO,
+                    mensagem=(
+                        f"Consulta {tentativa}: acompanhando "
+                        "somente os arquivos selecionados."
+                    ),
+                    dados={
+                        "agravos_processados": concluidos,
+                        "agravos_pendentes": pendentes
+                    }
+                )
+
+                tempo_decorrido = (
+                    monotonic() - inicio_acompanhamento
+                )
+                marcos = (
+                    (
+                        aviso_inicial_segundos,
+                        "aviso_inicial",
+                        "informacao",
+                        "O processamento pode demorar um pouco",
+                        (
+                            "O SINAN continua preparando os arquivos "
+                            "selecionados. O acompanhamento permanece "
+                            "automático."
+                        )
+                    ),
+                    (
+                        aviso_lento_segundos,
+                        "aviso_lento",
+                        "aviso",
+                        "Processamento mais lento que o normal",
+                        (
+                            "Os arquivos ainda não estão disponíveis. "
+                            "O ArboHub continuará verificando e fará o "
+                            "download assim que possível."
+                        )
+                    ),
+                    (
+                        aviso_reforcado_segundos,
+                        "aviso_reforcado",
+                        "aviso",
+                        "A exportação continua pendente",
+                        (
+                            "O tempo de resposta está acima do habitual. "
+                            "A seleção continuará sendo acompanhada até "
+                            "o limite configurado."
+                        )
+                    )
+                )
+
+                for segundos, chave, nivel, titulo, texto in marcos:
+                    if (
+                        tempo_decorrido < segundos
+                        or chave in alertas_emitidos
+                    ):
+                        continue
+
+                    alertas_emitidos.add(chave)
+                    self._emitir(
+                        ao_evento=ao_evento,
+                        etapa=self.ETAPA_PROCESSAMENTO,
+                        estado=self.ESTADO_EM_ANDAMENTO,
+                        mensagem=titulo,
+                        dados={
+                            "alerta_processamento": True,
+                            "marco_minutos": round(
+                                segundos / 60,
+                                1
+                            ),
+                            "nivel": nivel,
+                            "titulo": titulo,
+                            "texto": texto,
+                            "permitir_modo_manual": False,
+                            "agravos_processados": concluidos,
+                            "agravos_pendentes": pendentes
+                        }
+                    )
+
+            try:
+                processamento = (
+                    exportacao.aguardar_solicitacoes_selecionadas(
+                        solicitacoes=solicitacoes,
+                        intervalo_segundos=(
+                            intervalo_consulta_segundos
+                        ),
+                        tempo_limite_segundos=(
+                            tempo_limite_segundos
+                        ),
+                        ao_atualizar=ao_atualizar,
+                        cancelado=cancelado,
+                        modo_manual_ativo=modo_manual_ativo
+                    )
+                )
+
+                if not processamento["todas_prontas"]:
+                    pendentes = tuple(
+                        rotulos[agravo]
+                        for agravo in agravos_pendentes
+                        if agravo not in agravos_processados
+                    )
+                    raise ProcessamentoBasesPendente(
+                        (
+                            "O acompanhamento chegou ao limite. "
+                            "Use a correção manual para os arquivos "
+                            "selecionados que continuam pendentes."
+                        ),
+                        dados={
+                            "tempo_decorrido_segundos": (
+                                processamento[
+                                    "tempo_decorrido_segundos"
+                                ]
+                            ),
+                            "tempo_limite_segundos": (
+                                tempo_limite_segundos
+                            ),
+                            "agravos_processados": tuple(
+                                rotulos[agravo]
+                                for agravo in agravos_processados
+                            ),
+                            "agravos_pendentes": pendentes,
+                            "correcao_manual_disponivel": bool(
+                                pendentes
+                            ),
+                            "data_referencia": (
+                                data_referencia.isoformat()
+                            ),
+                            "selecao_destinos": (
+                                selecao_destinos.para_dict()
+                            )
+                        }
+                    )
+
+                for agravo in agravos_pendentes:
+                    if agravo in agravos_processados:
+                        continue
+
+                    resultados[agravo] = (
+                        self._baixar_e_distribuir_selecionado(
+                            exportacao=exportacao,
+                            numero_solicitacao=solicitacoes[agravo],
+                            agravo=agravo,
+                            rotulo=rotulos[agravo],
+                            pasta_lote=pasta_lote,
+                            data_referencia=data_referencia,
+                            selecao_destinos=selecao_destinos,
+                            ao_evento=ao_evento,
+                            cancelado=cancelado
+                        )
+                    )
+                    agravos_processados.add(agravo)
+            finally:
+                try:
+                    self.arquivos_service.excluir_pasta_lote(
+                        pasta_lote
+                    )
+                except Exception:
+                    pass
+
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_DOWNLOAD,
+                estado=self.ESTADO_CONCLUIDA,
+                mensagem=(
+                    "Os arquivos selecionados foram baixados "
+                    "e validados."
+                )
+            )
+        else:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_DOWNLOAD,
+                estado=self.ESTADO_IGNORADA,
+                mensagem=(
+                    "Download ignorado porque os arquivos "
+                    "necessários já estavam válidos."
+                )
+            )
+
+        self._emitir_resultados_destinos(
+            selecao_destinos=selecao_destinos,
+            ao_evento=ao_evento
+        )
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=self.ESTADO_CONCLUIDA,
+            mensagem="Todos os arquivos selecionados foram processados."
+        )
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_FINALIZACAO,
+            estado=self.ESTADO_CONCLUIDA,
+            mensagem=(
+                "A atualização dos destinos selecionados foi concluída."
+            ),
+            dados={
+                "selecao_destinos": selecao_destinos.para_dict()
+            }
+        )
+
+        return {
+            "data_referencia": data_referencia.isoformat(),
+            "selecao_destinos": selecao_destinos.para_dict(),
+            "resumo_selecao": selecao_destinos.resumo(),
+            "agravos": resultados,
+            "historico": {
+                agravo: resultado["historico"]
+                for agravo, resultado in resultados.items()
+                if resultado["historico"] is not None
+            },
+            "pastas_teste": {
+                agravo: resultado["base_dbf"]
+                for agravo, resultado in resultados.items()
+                if resultado["base_dbf"] is not None
+            },
+            "bancos_atuais": {
+                agravo: resultado["banco_atual"]
+                for agravo, resultado in resultados.items()
+                if resultado["banco_atual"] is not None
+            },
+            "dados_de_pacientes_lidos": False,
+            "concluida": True
+        }
+
+    def _baixar_e_distribuir_selecionado(
+        self,
+        exportacao: ExportacaoBasesDbf,
+        numero_solicitacao: str,
+        agravo: str,
+        rotulo: str,
+        pasta_lote: Path,
+        data_referencia: date,
+        selecao_destinos: SelecaoDestinosBases,
+        ao_evento: CallbackEvento | None,
+        cancelado: CallbackCancelamento | None
+    ) -> dict[str, object]:
+        self._verificar_cancelamento(cancelado)
+        temporario = self.arquivos_service.caminho_temporario(
+            pasta_lote=pasta_lote,
+            agravo=agravo
+        )
+        exportacao.baixar_exportacao_dbf(
+            numero_solicitacao=numero_solicitacao,
+            caminho_destino=temporario
+        )
+        validado = self.arquivos_service.validar_e_finalizar(
+            caminho_temporario=temporario,
+            pasta_lote=pasta_lote,
+            agravo=agravo,
+            data_referencia=data_referencia
+        )
+        return self._distribuir_agravo_selecionado(
+            caminho_zip=Path(validado["caminho"]),
+            agravo=agravo,
+            rotulo=rotulo,
+            data_referencia=data_referencia,
+            selecao_destinos=selecao_destinos,
+            ao_evento=ao_evento,
+            reutilizado=False
+        )
+
+    def _distribuir_agravo_selecionado(
+        self,
+        caminho_zip: Path,
+        agravo: str,
+        rotulo: str,
+        data_referencia: date,
+        selecao_destinos: SelecaoDestinosBases,
+        ao_evento: CallbackEvento | None,
+        reutilizado: bool
+    ) -> dict[str, object]:
+        caminho_fonte = Path(caminho_zip)
+        resultado_historico = None
+
+        if selecao_destinos.atualizar_historico:
+            destino_historico = self.arquivos_service.caminho_historico(
+                agravo=agravo,
+                data_referencia=data_referencia
+            )
+
+            if caminho_fonte.resolve() == destino_historico.resolve():
+                resultado_historico = {
+                    "agravo": agravo,
+                    "caminho": destino_historico,
+                    "reutilizado": True,
+                    "arquivado": True
+                }
+            else:
+                resultado_historico = (
+                    self.arquivos_service.arquivar_agravo(
+                        caminho_zip=caminho_fonte,
+                        agravo=agravo,
+                        data_referencia=data_referencia,
+                        substituir_existente=(
+                            destino_historico.exists()
+                        )
+                    )
+                )
+                caminho_fonte = Path(
+                    resultado_historico["caminho"]
+                )
+
+        validacao = (
+            self.arquivos_service.validar_extracao_agravo_zip(
+                caminho_zip=caminho_fonte,
+                agravo=agravo,
+                data_referencia=data_referencia
+            )
+        )
+        resultado_base = None
+        resultado_banco = None
+
+        if selecao_destinos.inclui_base_dbf(agravo):
+            resultado_base = (
+                self.arquivos_service.instalar_dbf_agravo_pasta_teste(
+                    agravo=agravo,
+                    data_referencia=data_referencia,
+                    caminho_zip=caminho_fonte
+                )
+            )
+
+        if selecao_destinos.atualizar_bancos_atuais:
+            resultado_banco = (
+                self.arquivos_service.instalar_dbf_agravo_bancos_atuais(
+                    agravo=agravo,
+                    data_referencia=data_referencia,
+                    caminho_zip=caminho_fonte
+                )
+            )
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=self.ESTADO_EM_ANDAMENTO,
+            mensagem=(
+                f"{rotulo} foi validado e enviado somente aos "
+                "destinos selecionados."
+            ),
+            dados={
+                "arquivo_processado": True,
+                "agravo": agravo,
+                "rotulo": rotulo,
+                "historico_reutilizado": reutilizado,
+                "nome_dbf": validacao["nome_interno"],
+                "destino_teste": (
+                    resultado_base["destino"]
+                    if resultado_base is not None
+                    else None
+                ),
+                "destino_bancos_atuais": (
+                    resultado_banco["destino"]
+                    if resultado_banco is not None
+                    else None
+                )
+            }
+        )
+
+        return {
+            "agravo": agravo,
+            "fonte": caminho_fonte,
+            "historico": resultado_historico,
+            "validacao": validacao,
+            "base_dbf": resultado_base,
+            "banco_atual": resultado_banco
+        }
+
+    def _emitir_resultados_destinos(
+        self,
+        selecao_destinos: SelecaoDestinosBases,
+        ao_evento: CallbackEvento | None
+    ):
+        if selecao_destinos.atualizar_historico:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_HISTORICO,
+                estado=self.ESTADO_CONCLUIDA,
+                mensagem="Histórico atualizado conforme a seleção."
+            )
+        else:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_HISTORICO,
+                estado=self.ESTADO_IGNORADA,
+                mensagem="Histórico não selecionado e não alterado."
+            )
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_EXTRACAO,
+            estado=self.ESTADO_CONCLUIDA,
+            mensagem=(
+                "Extração validada sem interpretar registros."
+            )
+        )
+
+        if selecao_destinos.agravos_bases_dbf:
+            rotulos = {
+                "dengue": "Dengue",
+                "chikungunya": "Chikungunya"
+            }
+            selecionados = ", ".join(
+                rotulos[agravo]
+                for agravo in sorted(
+                    selecao_destinos.agravos_bases_dbf
+                )
+            )
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_PASTAS_TESTE,
+                estado=self.ESTADO_CONCLUIDA,
+                mensagem=(
+                    f"Bases DBF atualizadas: {selecionados}."
+                )
+            )
+        else:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_PASTAS_TESTE,
+                estado=self.ESTADO_IGNORADA,
+                mensagem="Bases DBF não selecionadas e não alteradas."
+            )
+
+        if selecao_destinos.atualizar_bancos_atuais:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_BANCOS_ATUAIS,
+                estado=self.ESTADO_CONCLUIDA,
+                mensagem="Bancos atuais atualizados com segurança."
+            )
+        else:
+            self._emitir(
+                ao_evento=ao_evento,
+                etapa=self.ETAPA_BANCOS_ATUAIS,
+                estado=self.ESTADO_IGNORADA,
+                mensagem="Bancos atuais não selecionados e não alterados."
+            )
 
     def executar_rotina_completa(
         self,
@@ -1522,6 +2398,97 @@ class RotinaBasesService:
         )
 
         return resultado_final
+
+    def processar_correcao_manual_selecionada(
+        self,
+        caminho_zip: str | Path,
+        agravos_pendentes: tuple[str, ...] | list[str],
+        selecao_destinos: SelecaoDestinosBases,
+        data_referencia: date | None = None,
+        ao_evento: CallbackEvento | None = None,
+        cancelado: CallbackCancelamento | None = None
+    ) -> dict[str, object]:
+        """Aplica uma correção somente aos destinos selecionados."""
+
+        data_referencia = data_referencia or date.today()
+        self._verificar_cancelamento(cancelado)
+        identificacao = self.arquivos_service.identificar_agravo_zip(
+            caminho_zip
+        )
+        agravo = str(identificacao["agravo"])
+        rotulos = {
+            SelecaoDestinosBases.AGRAVO_DENGUE: "Dengue",
+            SelecaoDestinosBases.AGRAVO_CHIKUNGUNYA:
+                "Chikungunya"
+        }
+        pendentes_normalizados: set[str] = set()
+
+        for item in agravos_pendentes:
+            valor = str(item).strip().casefold()
+
+            if valor == "dengue":
+                pendentes_normalizados.add(
+                    SelecaoDestinosBases.AGRAVO_DENGUE
+                )
+            elif valor in {"chikungunya", "chiku"}:
+                pendentes_normalizados.add(
+                    SelecaoDestinosBases.AGRAVO_CHIKUNGUNYA
+                )
+
+        if agravo not in pendentes_normalizados:
+            esperados = ", ".join(
+                rotulos[item]
+                for item in sorted(pendentes_normalizados)
+            )
+            raise RuntimeError(
+                f"O ZIP pertence a {rotulos[agravo]}, mas a "
+                f"pendência atual é: {esperados}."
+            )
+
+        resultado = self._distribuir_agravo_selecionado(
+            caminho_zip=Path(caminho_zip),
+            agravo=agravo,
+            rotulo=rotulos[agravo],
+            data_referencia=data_referencia,
+            selecao_destinos=selecao_destinos,
+            ao_evento=ao_evento,
+            reutilizado=False
+        )
+        restantes = pendentes_normalizados - {agravo}
+        concluida = not restantes
+
+        self._emitir(
+            ao_evento=ao_evento,
+            etapa=self.ETAPA_PROCESSAMENTO,
+            estado=(
+                self.ESTADO_CONCLUIDA
+                if concluida
+                else self.ESTADO_EM_ANDAMENTO
+            ),
+            mensagem=(
+                f"A correção manual de {rotulos[agravo]} foi "
+                "validada e aplicada aos destinos selecionados."
+            ),
+            dados={
+                "arquivo_processado": True,
+                "correcao_manual": True,
+                "agravo": agravo,
+                "rotulo": rotulos[agravo]
+            }
+        )
+
+        return {
+            "concluida": concluida,
+            "agravo_corrigido": agravo,
+            "rotulo_corrigido": rotulos[agravo],
+            "agravos_pendentes": tuple(
+                rotulos[item]
+                for item in sorted(restantes)
+            ),
+            "resultado": resultado,
+            "selecao_destinos": selecao_destinos.para_dict(),
+            "dados_de_pacientes_lidos": False
+        }
 
     def processar_correcao_manual(
         self,

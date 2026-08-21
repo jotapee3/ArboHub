@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import shutil
+from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
@@ -194,7 +195,8 @@ class ArquivosExportacaoDbfService:
         self,
         incluir_historico: bool = True,
         incluir_pastas_teste: bool = True,
-        incluir_bancos_atuais: bool = True
+        incluir_bancos_atuais: bool = True,
+        agravos_pastas_teste: Iterable[str] | None = None
     ) -> dict[str, Path]:
         """
         Confirma leitura, gravação e separação dos destinos.
@@ -212,12 +214,27 @@ class ArquivosExportacaoDbfService:
             )
 
         if incluir_pastas_teste:
-            caminhos["teste_ab1"] = (
-                self.pasta_teste_ab1
+            agravos = (
+                {
+                    self.AGRAVO_DENGUE,
+                    self.AGRAVO_CHIKUNGUNYA
+                }
+                if agravos_pastas_teste is None
+                else {
+                    self._validar_agravo(agravo)
+                    for agravo in agravos_pastas_teste
+                }
             )
-            caminhos["teste_ab2"] = (
-                self.pasta_teste_ab2
-            )
+
+            if self.AGRAVO_DENGUE in agravos:
+                caminhos["teste_ab1"] = (
+                    self.pasta_teste_ab1
+                )
+
+            if self.AGRAVO_CHIKUNGUNYA in agravos:
+                caminhos["teste_ab2"] = (
+                    self.pasta_teste_ab2
+                )
 
         if incluir_bancos_atuais:
             caminhos["bancos_atuais"] = (
@@ -690,7 +707,6 @@ class ArquivosExportacaoDbfService:
         pasta_extracao = self.criar_pasta_extracao(
             data_referencia=data_referencia
         )
-
         sucesso = False
 
         try:
@@ -2201,16 +2217,67 @@ class ArquivosExportacaoDbfService:
             data_referencia=data_referencia
         )
 
+        return self.validar_extracao_agravo_zip(
+            caminho_zip=caminho_zip,
+            agravo=agravo,
+            data_referencia=data_referencia
+        )
+
+    def zip_contem_dbf_do_agravo(
+        self,
+        caminho_zip: str | Path,
+        agravo: str
+    ) -> bool:
+        """Confere a estrutura do ZIP sem extrair nem ler o DBF."""
+
+        agravo = self._validar_agravo(agravo)
+        caminho_zip = Path(caminho_zip)
+
+        if not caminho_zip.is_file():
+            return False
+
+        try:
+            with ZipFile(caminho_zip, "r") as arquivo_zip:
+                prefixo = self.PREFIXOS_DBF[agravo]
+                candidatos = [
+                    info
+                    for info in arquivo_zip.infolist()
+                    if (
+                        not info.is_dir()
+                        and info.file_size > 0
+                        and Path(info.filename).suffix.casefold()
+                        == ".dbf"
+                        and Path(info.filename).name.upper().startswith(
+                            prefixo
+                        )
+                    )
+                ]
+        except (BadZipFile, OSError):
+            return False
+
+        return len(candidatos) == 1
+
+    def validar_extracao_agravo_zip(
+        self,
+        caminho_zip: str | Path,
+        agravo: str,
+        data_referencia: date | None = None
+    ) -> dict[str, object]:
+        """Valida um ZIP individual sem exigir gravação histórica."""
+
+        agravo = self._validar_agravo(agravo)
+        data_referencia = data_referencia or date.today()
+        caminho_zip = Path(caminho_zip)
+
         if not caminho_zip.exists():
             raise FileNotFoundError(
-                "O ZIP histórico não foi encontrado: "
+                "O ZIP validado não foi encontrado: "
                 f"{caminho_zip}"
             )
 
         pasta = self.criar_pasta_extracao(
             data_referencia=data_referencia
         )
-        sucesso = False
 
         try:
             nome = (
@@ -2224,18 +2291,20 @@ class ArquivosExportacaoDbfService:
                 agravo=agravo,
                 nome_destino=nome
             )
-            sucesso = True
             return resultado
         finally:
-            if sucesso:
+            try:
                 self.excluir_pasta_lote(pasta)
+            except Exception:
+                pass
 
     def instalar_dbf_agravo_pasta_teste(
         self,
         agravo: str,
         data_referencia: date | None = None,
         pasta_ab1: str | Path | None = None,
-        pasta_ab2: str | Path | None = None
+        pasta_ab2: str | Path | None = None,
+        caminho_zip: str | Path | None = None
     ) -> dict[str, object]:
         """Instala com backup apenas o DBF de um agravo."""
 
@@ -2252,6 +2321,7 @@ class ArquivosExportacaoDbfService:
             agravo=agravo,
             data_referencia=data_referencia,
             destino=destino,
+            caminho_zip=caminho_zip,
             localizador_anteriores=lambda pasta, item_agravo: (
                 self._localizar_arquivos_anteriores_teste(destino)
             )
@@ -2261,7 +2331,8 @@ class ArquivosExportacaoDbfService:
         self,
         agravo: str,
         data_referencia: date | None = None,
-        pasta_bancos_atuais: str | Path | None = None
+        pasta_bancos_atuais: str | Path | None = None,
+        caminho_zip: str | Path | None = None
     ) -> dict[str, object]:
         """Instala com backup apenas o banco atual de um agravo."""
 
@@ -2277,6 +2348,7 @@ class ArquivosExportacaoDbfService:
             agravo=agravo,
             data_referencia=data_referencia,
             destino=destino,
+            caminho_zip=caminho_zip,
             localizador_anteriores=(
                 self._localizar_bancos_atuais_anteriores
             )
@@ -2287,7 +2359,8 @@ class ArquivosExportacaoDbfService:
         agravo: str,
         data_referencia: date,
         destino: Path,
-        localizador_anteriores
+        localizador_anteriores,
+        caminho_zip: str | Path | None = None
     ) -> dict[str, object]:
         """
         Instala um DBF individual com temporário, SHA-256,
@@ -2308,10 +2381,13 @@ class ArquivosExportacaoDbfService:
                 f"{pasta_destino}"
             )
 
-        caminho_zip = self.caminho_historico(
-            agravo=agravo,
-            data_referencia=data_referencia
-        )
+        if caminho_zip is None:
+            caminho_zip = self.caminho_historico(
+                agravo=agravo,
+                data_referencia=data_referencia
+            )
+        else:
+            caminho_zip = Path(caminho_zip)
         pasta_staging = self.criar_pasta_extracao(
             data_referencia=data_referencia
         )

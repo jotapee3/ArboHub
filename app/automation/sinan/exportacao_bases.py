@@ -295,7 +295,7 @@ class ExportacaoBasesDbf(VerificacaoObitos):
 
     def solicitar_exportacao_chikungunya(
         self,
-        numero_solicitacao_dengue: str
+        numero_solicitacao_dengue: str | None = None
     ) -> dict[str, str | bool]:
         """
         Cria a solicitação real de FEBRE DE CHIKUNGUNYA.
@@ -305,15 +305,20 @@ class ExportacaoBasesDbf(VerificacaoObitos):
         confundida com a confirmação nova.
         """
 
+        numeros_ignorados = (
+            {str(numero_solicitacao_dengue)}
+            if numero_solicitacao_dengue is not None
+            else None
+        )
+
         resultado = self._solicitar_exportacao_agravo(
             agravo_esperado=self.AGRAVO_CHIKUNGUNYA,
-            numeros_ignorados={
-                str(numero_solicitacao_dengue)
-            }
+            numeros_ignorados=numeros_ignorados
         )
 
         if (
-            resultado["numero_solicitacao"]
+            numero_solicitacao_dengue is not None
+            and resultado["numero_solicitacao"]
             == str(numero_solicitacao_dengue)
         ):
             raise RuntimeError(
@@ -989,6 +994,46 @@ class ExportacaoBasesDbf(VerificacaoObitos):
             )
         }
 
+    def consultar_solicitacoes_selecionadas(
+        self,
+        solicitacoes: dict[str, str]
+    ) -> dict[str, dict[str, object]]:
+        """Consulta somente os números necessários à execução."""
+
+        self._garantir_tela_consulta_exportacoes()
+
+        if not solicitacoes:
+            raise ValueError(
+                "Informe pelo menos uma solicitação para consulta."
+            )
+
+        numeros: dict[str, str] = {}
+
+        for agravo, numero in solicitacoes.items():
+            chave = str(agravo).strip().casefold()
+
+            if chave not in {
+                self.AGRAVO_DENGUE,
+                self.AGRAVO_CHIKUNGUNYA
+            }:
+                raise ValueError(
+                    f"Agravo inválido para consulta: {agravo!r}."
+                )
+
+            numeros[chave] = self._validar_numero_solicitacao(
+                numero
+            )
+
+        if len(set(numeros.values())) != len(numeros):
+            raise ValueError(
+                "Os números das solicitações precisam ser diferentes."
+            )
+
+        return {
+            agravo: self._ler_solicitacao_na_tabela(numero)
+            for agravo, numero in numeros.items()
+        }
+
 
     def atualizar_consulta_exportacoes_dbf(self):
         """
@@ -1198,6 +1243,130 @@ class ExportacaoBasesDbf(VerificacaoObitos):
                 cancelado
             )
 
+            self.atualizar_consulta_exportacoes_dbf()
+
+    def aguardar_solicitacoes_selecionadas(
+        self,
+        solicitacoes: dict[str, str],
+        intervalo_segundos: float | None = None,
+        tempo_limite_segundos: float | None = None,
+        ao_atualizar: Callable[
+            [int, dict[str, dict[str, object]]],
+            None
+        ] | None = None,
+        cancelado: Callable[[], bool] | None = None,
+        modo_manual_ativo: Callable[[], bool] | None = None
+    ) -> dict[str, object]:
+        """Acompanha apenas as exportações exigidas pela seleção."""
+
+        self._garantir_tela_consulta_exportacoes()
+
+        if intervalo_segundos is None:
+            intervalo_segundos = (
+                self.INTERVALO_ATUALIZACAO_PADRAO_SEGUNDOS
+            )
+
+        if tempo_limite_segundos is None:
+            tempo_limite_segundos = (
+                self.TEMPO_LIMITE_PROCESSAMENTO_PADRAO_SEGUNDOS
+            )
+
+        intervalo_segundos = float(intervalo_segundos)
+        tempo_limite_segundos = float(tempo_limite_segundos)
+
+        if intervalo_segundos < 5:
+            raise ValueError(
+                "O intervalo de atualização deve ser de "
+                "pelo menos 5 segundos."
+            )
+
+        if tempo_limite_segundos <= 0:
+            raise ValueError(
+                "O tempo limite precisa ser maior que zero."
+            )
+
+        inicio = monotonic()
+        tentativa = 0
+        resultados: dict[str, dict[str, object]] = {}
+
+        while True:
+            self._verificar_cancelamento_exportacao(cancelado)
+            tentativa += 1
+            resultados = self.consultar_solicitacoes_selecionadas(
+                solicitacoes
+            )
+
+            if ao_atualizar is not None:
+                ao_atualizar(tentativa, resultados)
+
+            if self._duas_solicitacoes_estao_prontas(resultados):
+                return {
+                    "tentativas": tentativa,
+                    "tempo_decorrido_segundos": round(
+                        monotonic() - inicio,
+                        1
+                    ),
+                    **resultados,
+                    "todas_prontas": True,
+                    "downloads_iniciados": False,
+                    "dados_de_pacientes_lidos": False
+                }
+
+            tempo_decorrido = monotonic() - inicio
+
+            if tempo_decorrido >= tempo_limite_segundos:
+                return {
+                    "tentativas": tentativa,
+                    "tempo_decorrido_segundos": round(
+                        tempo_decorrido,
+                        1
+                    ),
+                    **resultados,
+                    "todas_prontas": False,
+                    "tempo_limite_atingido": True,
+                    "downloads_iniciados": False,
+                    "dados_de_pacientes_lidos": False
+                }
+
+            while (
+                modo_manual_ativo is not None
+                and modo_manual_ativo()
+            ):
+                self._aguardar_intervalo_exportacao(
+                    segundos=min(
+                        0.5,
+                        max(
+                            0.1,
+                            tempo_limite_segundos
+                            - (monotonic() - inicio)
+                        )
+                    ),
+                    cancelado=cancelado
+                )
+
+                if monotonic() - inicio >= tempo_limite_segundos:
+                    return {
+                        "tentativas": tentativa,
+                        "tempo_decorrido_segundos": round(
+                            monotonic() - inicio,
+                            1
+                        ),
+                        **resultados,
+                        "todas_prontas": False,
+                        "tempo_limite_atingido": True,
+                        "downloads_iniciados": False,
+                        "dados_de_pacientes_lidos": False
+                    }
+
+            espera = min(
+                intervalo_segundos,
+                tempo_limite_segundos - tempo_decorrido
+            )
+            self._aguardar_intervalo_exportacao(
+                segundos=espera,
+                cancelado=cancelado
+            )
+            self._verificar_cancelamento_exportacao(cancelado)
             self.atualizar_consulta_exportacoes_dbf()
 
     def _duas_solicitacoes_estao_prontas(
