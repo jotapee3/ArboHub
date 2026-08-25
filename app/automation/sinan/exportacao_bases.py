@@ -71,6 +71,9 @@ class ExportacaoBasesDbf(VerificacaoObitos):
     AGRAVO_DENGUE = "DENGUE"
     AGRAVO_CHIKUNGUNYA = "FEBRE DE CHIKUNGUNYA"
 
+    CHAVE_AGRAVO_DENGUE = "dengue"
+    CHAVE_AGRAVO_CHIKUNGUNYA = "chikungunya"
+
     TEMPO_ABRIR_EXPORTACAO_SEGUNDOS = 120
     TEMPO_CONFIRMAR_SOLICITACAO_SEGUNDOS = 90
     TEMPO_LOCALIZAR_CHECKPOINT_SEGUNDOS = 30
@@ -1010,14 +1013,12 @@ class ExportacaoBasesDbf(VerificacaoObitos):
         numeros: dict[str, str] = {}
 
         for agravo, numero in solicitacoes.items():
-            chave = str(agravo).strip().casefold()
+            chave = self._normalizar_agravo_consulta(agravo)
 
-            if chave not in {
-                self.AGRAVO_DENGUE,
-                self.AGRAVO_CHIKUNGUNYA
-            }:
+            if chave in numeros:
                 raise ValueError(
-                    f"Agravo inválido para consulta: {agravo!r}."
+                    "O mesmo agravo foi informado mais de uma vez "
+                    "para consulta."
                 )
 
             numeros[chave] = self._validar_numero_solicitacao(
@@ -1033,6 +1034,30 @@ class ExportacaoBasesDbf(VerificacaoObitos):
             agravo: self._ler_solicitacao_na_tabela(numero)
             for agravo, numero in numeros.items()
         }
+
+    @classmethod
+    def _normalizar_agravo_consulta(cls, agravo: object) -> str:
+        """Converte nomes internos ou do portal para a chave interna."""
+
+        chave = str(agravo).strip().casefold()
+        aliases = {
+            cls.CHAVE_AGRAVO_DENGUE: cls.CHAVE_AGRAVO_DENGUE,
+            cls.AGRAVO_DENGUE.casefold(): cls.CHAVE_AGRAVO_DENGUE,
+            cls.CHAVE_AGRAVO_CHIKUNGUNYA: (
+                cls.CHAVE_AGRAVO_CHIKUNGUNYA
+            ),
+            "chiku": cls.CHAVE_AGRAVO_CHIKUNGUNYA,
+            cls.AGRAVO_CHIKUNGUNYA.casefold(): (
+                cls.CHAVE_AGRAVO_CHIKUNGUNYA
+            )
+        }
+
+        try:
+            return aliases[chave]
+        except KeyError:
+            raise ValueError(
+                f"Agravo inválido para consulta: {agravo!r}."
+            ) from None
 
 
     def atualizar_consulta_exportacoes_dbf(self):
