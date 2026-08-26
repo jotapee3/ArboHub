@@ -2228,6 +2228,8 @@ class ExportacaoBasesDbf(VerificacaoObitos):
         )
 
     def _garantir_tela_consulta_exportacoes(self):
+        self._garantir_pagina_aberta()
+
         if not self._tela_consulta_exportacoes_esta_aberta():
             raise RuntimeError(
                 "A tela Consultar Exportações DBF "

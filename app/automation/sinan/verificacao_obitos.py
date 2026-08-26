@@ -6,6 +6,10 @@ from time import monotonic
 
 from playwright.sync_api import Frame, Locator, Page
 
+from app.automation.sinan.excecoes import (
+    SessaoSinanExpirada
+)
+
 
 class VerificacaoObitos:
     """
@@ -46,6 +50,7 @@ class VerificacaoObitos:
     JANELA_DETECCAO_PROCESSAMENTO_MS = 350
     INTERVALO_VERIFICACAO_MS = 40
     ESTABILIDADE_APOS_PROCESSAMENTO_MS = 120
+    TEXTO_SESSAO_EXPIRADA = "Sessão Expirada!"
 
     def __init__(self, pagina: Page):
         self.pagina = pagina
@@ -3448,11 +3453,33 @@ class VerificacaoObitos:
 
         url_atual = self.pagina.url.lower()
 
-        if "/login/" in url_atual:
-            raise RuntimeError(
-                "A sessão do SINAN expirou ou retornou "
-                "à página de login."
+        if (
+            "/login/" in url_atual
+            or self._sessao_expirada_esta_visivel()
+        ):
+            raise SessaoSinanExpirada(
+                "A sessão do SINAN expirou."
             )
+
+    def _sessao_expirada_esta_visivel(self) -> bool:
+        """
+        Detecta o aviso do cabeçalho sem ler registros da página.
+
+        O SINAN mantém a URL em ``/secured/home.jsf`` depois que a
+        sessão expira. Por isso a URL, sozinha, não confirma que o
+        acesso ainda está autenticado.
+        """
+
+        try:
+            return any(
+                self._texto_existe_no_contexto(
+                    contexto=contexto,
+                    texto=self.TEXTO_SESSAO_EXPIRADA
+                )
+                for contexto in self._obter_contextos()
+            )
+        except Exception:
+            return False
 
     def _normalizar_texto(
         self,
