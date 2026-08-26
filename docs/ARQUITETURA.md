@@ -23,6 +23,7 @@ A interface não deve acessar diretamente o SQLite nem controlar detalhes do nav
 | `dev.py` | supervisor de desenvolvimento com reinicialização automática |
 | `app/gui/` | janelas, páginas, componentes, temas e recursos visuais |
 | `app/services/` | regras operacionais, coordenação dos fluxos, configurações, histórico e arquivos |
+| `app/services/qualifica/` | regras isoladas dos indicadores e relatórios do Qualifica Vigilância |
 | `app/automation/sinan/` | navegação e interação com o portal SINAN |
 | `app/automation/gal/` | navegação, exportação e obtenção do relatório do GAL |
 | `app/core/caminhos.py` | caminhos locais compartilhados do aplicativo |
@@ -57,6 +58,7 @@ Páginas atuais:
 - validação, organização e substituição segura de arquivos;
 - configurações locais;
 - histórico operacional;
+- cálculos agregados e exportações do Qualifica, sem persistir linhas de pacientes;
 - credenciais e identidade do Windows;
 - manutenção, backup e reset controlado.
 
@@ -113,6 +115,10 @@ Uma nova aba deve respeitar a mesma divisão:
 4. caminhos compartilhados definidos em `app/core` ou nas configurações;
 5. testes de regressão antes da integração ao painel e histórico;
 6. revisão dos dados armazenados e das permissões exigidas.
+
+As subabas do Qualifica são desenvolvidas como módulos independentes sobre
+um núcleo comum. Cada módulo precisa ser validado isoladamente antes de ser
+ligado à página visual do Qualifica.
 
 ## Limites atuais
 

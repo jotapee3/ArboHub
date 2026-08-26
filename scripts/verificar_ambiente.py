@@ -9,6 +9,9 @@ VERSAO_PYTHON_VALIDADA = (3, 14)
 
 PACOTES_OBRIGATORIOS = {
     "customtkinter": "6.0.0",
+    "dbfread": "2.0.7",
+    "defusedxml": "0.7.1",
+    "openpyxl": "3.1.5",
     "pillow": "12.3.0",
     "playwright": "1.61.0",
 }

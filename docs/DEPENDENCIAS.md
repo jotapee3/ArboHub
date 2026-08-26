@@ -6,6 +6,9 @@ Em 12 de agosto de 2026, os testes do ArboHub foram executados com:
 
 - Python 3.14.6;
 - CustomTkinter 6.0.0;
+- DBFread 2.0.7;
+- defusedxml 0.7.1;
+- openpyxl 3.1.5;
 - Pillow 12.3.0;
 - Playwright 1.61.0;
 - Watchfiles 1.2.0.
@@ -19,8 +22,15 @@ O comando `python -m pip check` informou que não havia requisitos quebrados.
 Contém apenas as dependências diretas necessárias para executar o aplicativo:
 
 - CustomTkinter;
+- DBFread, para leitura controlada dos bancos DBF usados pelo Qualifica;
+- defusedxml, para reduzir riscos na leitura de arquivos XLSX externos;
+- openpyxl, para leitura e geração dos relatórios Excel do Qualifica;
 - Pillow;
 - Playwright.
+
+O primeiro módulo do Qualifica não usa pandas. O cálculo de 72 horas é
+feito com tipos nativos do Python, mantendo o consumo de memória e o pacote
+de distribuição menores.
 
 ### `requirements-dev.txt`
 
