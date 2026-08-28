@@ -168,12 +168,14 @@ O ArboHub nasceu para reunir essas tarefas em um fluxo único e compreensível. 
 - gere o ZIP semanal com nomenclatura consistente;
 - atualize histórico, bancos atuais e destinos de teste configurados.
 
-### Trabalhe com SINAN e GAL 🔬
+### Trabalhe com SINAN, GAL e Qualifica 🔬
 
 - apoio à consulta autorizada de óbitos por Dengue e Chikungunya;
 - solicitação e acompanhamento de exportações de bases do SINAN;
 - apoio à rotina semanal de exportação de sorotipos do GAL;
 - atualização controlada dos bancos e diretórios definidos pelo setor.
+- geração do relatório Qualifica de oportunidade de digitação em 72 horas,
+  com resultado agregado por município.
 
 ### Personalize a experiência 🎨
 

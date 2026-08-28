@@ -120,6 +120,11 @@ As subabas do Qualifica são desenvolvidas como módulos independentes sobre
 um núcleo comum. Cada módulo precisa ser validado isoladamente antes de ser
 ligado à página visual do Qualifica.
 
+A página visual apenas coleta os caminhos autorizados e apresenta resultados
+agregados. O relatório de 72 horas executa o serviço em uma thread de trabalho,
+carrega o dicionário institucional empacotado e publica o XLSX somente depois
+da validação atômica realizada pelo serviço.
+
 ## Limites atuais
 
 - não existe servidor ou sincronização entre computadores;

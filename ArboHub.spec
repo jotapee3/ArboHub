@@ -31,6 +31,10 @@ dados = [
         "assets/sistemas",
     ),
     (
+        str(RAIZ_PROJETO / "assets" / "qualifica"),
+        "assets/qualifica",
+    ),
+    (
         str(PASTA_NAVEGADORES),
         "ms-playwright",
     ),

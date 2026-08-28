@@ -26,10 +26,11 @@ notificações do SINAN.
 
 ### Entradas
 
-- dicionário XLSX com código IBGE, nome do município e CRS;
+- dicionário XLSX institucional, distribuído com o ArboHub e carregado
+  automaticamente;
 - um ou mais bancos DBF do SINAN;
 - período inclusivo da data dos primeiros sintomas;
-- caminho do relatório XLSX de saída.
+- pasta de destino do relatório XLSX, sugerida automaticamente.
 
 ### Regra preservada
 
@@ -60,7 +61,25 @@ O XLSX é escrito em arquivo temporário, reaberto para validação e publicado
 no destino somente depois dessa conferência. Se a publicação falhar, um
 arquivo anterior permanece preservado.
 
-### Validação manual antes da interface
+### Uso na interface
+
+A página `Qualifica` apresenta o relatório de 72 horas como o primeiro
+módulo disponível. Nela, o operador:
+
+- confere se o dicionário institucional foi reconhecido;
+- seleciona um ou mais DBFs e visualiza a lista completa dos arquivos;
+- informa o período com máscara `DD/MM/AAAA`, calendário ou semana
+  epidemiológica;
+- acompanha o processamento sem bloquear a interface;
+- recebe somente totais agregados e pode abrir o relatório ou sua pasta.
+
+Por padrão, os relatórios são gravados em
+`Documentos\Qualifica\Relatorios\72h`, com nome formado pelo período e pelo
+tipo do indicador. Uma nova execução para o mesmo período substitui o relatório
+anterior somente depois da validação do novo arquivo. A pasta pode ser alterada
+para a execução atual.
+
+### Validação por linha de comando
 
 Após instalar as dependências do projeto, o serviço pode ser validado em
 um cenário autorizado com:

@@ -30,6 +30,8 @@ data/
 dados/
 *.csv
 *.xlsx
+!assets/qualifica/
+!assets/qualifica/dicionario_municipios.xlsx
 *.xls
 *.dbf
 *.zip

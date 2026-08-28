@@ -9,6 +9,7 @@ from app.gui.components.content_area import ContentArea
 from app.gui.pages.inicio_page import InicioPage
 from app.gui.pages.sinan_page import SinanPage
 from app.gui.pages.gal_page import GalPage
+from app.gui.pages.qualifica_page import QualificaPage
 from app.gui.pages.historico_page import HistoricoPage
 from app.gui.pages.configuracoes_page import ConfiguracoesPage
 from app.gui.themes.colors import Colors
@@ -72,22 +73,25 @@ class MainWindow(ctk.CTk):
             comando_inicio=self.abrir_inicio,
             comando_sinan=self.abrir_sinan,
             comando_gal=self.abrir_gal,
+            comando_qualifica=self.abrir_qualifica,
             comando_historico=self.abrir_historico,
             comando_configuracoes=(
                 self.abrir_configuracoes
             )
         )
 
-        self.sidebar.pack(
-            side="left",
-            fill="y"
+        self.content_area.pack(
+            fill="both",
+            expand=True,
+            padx=(Sidebar.LARGURA_RECOLHIDA, 0)
         )
 
-        self.content_area.pack(
-            side="right",
-            fill="both",
-            expand=True
+        self.sidebar.place(
+            x=0,
+            y=0,
+            relheight=1
         )
+        self.sidebar.lift()
 
     def abrir_inicio(self):
         self.content_area.mostrar_pagina(
@@ -116,6 +120,13 @@ class MainWindow(ctk.CTk):
         )
         self.sidebar.selecionar_gal()
 
+    def abrir_qualifica(self):
+        self.content_area.mostrar_pagina(
+            "qualifica",
+            QualificaPage
+        )
+        self.sidebar.selecionar_qualifica()
+
     def abrir_historico(self):
         self.content_area.mostrar_pagina(
             "historico",
@@ -142,7 +153,8 @@ class MainWindow(ctk.CTk):
         comandos = {
             "inicio": self.abrir_inicio,
             "sinan": self.abrir_sinan,
-            "gal": self.abrir_gal
+            "gal": self.abrir_gal,
+            "qualifica": self.abrir_qualifica
         }
 
         comandos.get(

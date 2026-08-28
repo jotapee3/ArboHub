@@ -48,7 +48,8 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
     PAGINAS = {
         "Início": "inicio",
         "SINAN": "sinan",
-        "GAL": "gal"
+        "GAL": "gal",
+        "Qualifica": "qualifica"
     }
 
     PAGINAS_INVERSAS = {

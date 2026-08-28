@@ -24,7 +24,8 @@ class ConfiguracoesService:
     PAGINAS_VALIDAS = {
         "inicio",
         "sinan",
-        "gal"
+        "gal",
+        "qualifica"
     }
 
     INTERVALOS_VALIDOS = {
