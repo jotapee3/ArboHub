@@ -6,6 +6,10 @@ from time import monotonic
 
 from playwright.sync_api import Frame, Locator, Page
 
+from app.automation.sinan.excecoes import (
+    SessaoSinanExpirada
+)
+
 
 class VerificacaoObitos:
     """
@@ -46,6 +50,7 @@ class VerificacaoObitos:
     JANELA_DETECCAO_PROCESSAMENTO_MS = 350
     INTERVALO_VERIFICACAO_MS = 40
     ESTABILIDADE_APOS_PROCESSAMENTO_MS = 120
+    TEXTO_SESSAO_EXPIRADA = "Sessão Expirada!"
 
     def __init__(self, pagina: Page):
         self.pagina = pagina
@@ -3448,11 +3453,50 @@ class VerificacaoObitos:
 
         url_atual = self.pagina.url.lower()
 
-        if "/login/" in url_atual:
-            raise RuntimeError(
-                "A sessão do SINAN expirou ou retornou "
-                "à página de login."
+        if (
+            "/login/" in url_atual
+            or self._sessao_expirada_esta_visivel()
+        ):
+            raise SessaoSinanExpirada(
+                "A sessão do SINAN expirou."
             )
+
+    def _sessao_expirada_esta_visivel(self) -> bool:
+        """Detecta a expiração mesmo quando URL e tabela permanecem."""
+
+        marcadores = (
+            "sessao expirada",
+            "sua sessao expirou",
+        )
+
+        try:
+            contextos = self._obter_contextos()
+        except Exception:
+            return False
+
+        for contexto in contextos:
+            if self._texto_existe_no_contexto(
+                contexto=contexto,
+                texto=self.TEXTO_SESSAO_EXPIRADA
+            ):
+                return True
+
+            try:
+                texto_pagina = contexto.locator("body").inner_text(
+                    timeout=800
+                )
+                texto_normalizado = self._normalizar_texto(
+                    texto_pagina
+                )
+                if any(
+                    marcador in texto_normalizado
+                    for marcador in marcadores
+                ):
+                    return True
+            except Exception:
+                continue
+
+        return False
 
     def _normalizar_texto(
         self,

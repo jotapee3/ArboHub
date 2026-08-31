@@ -9,6 +9,9 @@ from typing import Any
 from app.automation.sinan.exportacao_bases import (
     ExportacaoBasesDbf
 )
+from app.automation.sinan.excecoes import (
+    SessaoSinanExpirada
+)
 from app.automation.sinan.navegador_sinan import (
     NavegadorSinan
 )
@@ -51,6 +54,7 @@ class AtualizacaoBasesService:
     EVENTO_MODO_MANUAL = "modo_manual"
     EVENTO_PENDENTE = "processamento_pendente"
     EVENTO_CORRECAO_MANUAL = "correcao_manual"
+    MAX_RECUPERACOES_SESSAO = 6
 
     ETAPA_ACESSO = "acesso"
     ETAPA_SOLICITACOES = (
@@ -371,55 +375,8 @@ class AtualizacaoBasesService:
             self._verificar_cancelamento()
 
             if estado["requer_navegador"]:
-                self._etapa_atual = self.ETAPA_ACESSO
-
-                self._emitir_etapa(
-                    etapa=self._etapa_atual,
-                    estado="iniciada",
-                    mensagem=(
-                        "Abrindo o navegador seguro do SINAN."
-                    )
-                )
-
-                navegador = NavegadorSinan(
-                    permitir_downloads=True,
-                    usar_login_automatico=True
-                )
-                pagina = navegador.abrir()
-
-                if navegador.login_automatico_concluido:
-                    self._emitir_etapa(
-                        etapa=self._etapa_atual,
-                        estado="em_andamento",
-                        mensagem=(
-                            "Login automático concluído com segurança."
-                        )
-                    )
-                else:
-                    self._emitir_etapa(
-                        etapa=self._etapa_atual,
-                        estado="em_andamento",
-                        mensagem=(
-                            navegador.obter_mensagem_espera_login()
-                        )
-                    )
-
-                    self._aguardar_login_cancelavel(
-                        navegador=navegador,
-                        tempo_limite_segundos=600
-                    )
-
-                self._emitir_etapa(
-                    etapa=self._etapa_atual,
-                    estado="concluida",
-                    mensagem=(
-                        "Login detectado. A automação pode "
-                        "continuar."
-                    )
-                )
-
-                exportacao = ExportacaoBasesDbf(
-                    pagina
+                navegador, exportacao = (
+                    self._abrir_sinan_autenticado()
                 )
 
             else:
@@ -434,50 +391,99 @@ class AtualizacaoBasesService:
                 )
 
             self._verificar_cancelamento()
+            recuperacoes_sessao = 0
 
-            resultado = (
-                self.rotina_service.executar_rotina_selecionada(
-                    selecao_destinos=selecao_destinos,
-                    exportacao=exportacao,
-                    solicitacoes_autorizadas=(
-                        solicitacoes_autorizadas
-                    ),
-                    intervalo_consulta_segundos=(
-                        configuracoes_exportacao[
-                            "intervalo_consulta_segundos"
-                        ]
-                    ),
-                    tempo_limite_segundos=(
-                        configuracoes_exportacao[
-                            "tempo_limite_segundos"
-                        ]
-                    ),
-                    aviso_inicial_segundos=(
-                        configuracoes_exportacao[
-                            "aviso_inicial_segundos"
-                        ]
-                    ),
-                    aviso_lento_segundos=(
-                        configuracoes_exportacao[
-                            "aviso_lento_segundos"
-                        ]
-                    ),
-                    aviso_reforcado_segundos=(
-                        configuracoes_exportacao[
-                            "aviso_reforcado_segundos"
-                        ]
-                    ),
-                    ao_evento=(
-                        self._receber_evento_rotina
-                    ),
-                    cancelado=(
-                        self._cancelamento.is_set
-                    ),
-                    modo_manual_ativo=(
-                        self._modo_manual.is_set
+            while True:
+                try:
+                    resultado = (
+                        self.rotina_service
+                        .executar_rotina_selecionada(
+                            selecao_destinos=selecao_destinos,
+                            exportacao=exportacao,
+                            solicitacoes_autorizadas=(
+                                solicitacoes_autorizadas
+                            ),
+                            intervalo_consulta_segundos=(
+                                configuracoes_exportacao[
+                                    "intervalo_consulta_segundos"
+                                ]
+                            ),
+                            tempo_limite_segundos=(
+                                configuracoes_exportacao[
+                                    "tempo_limite_segundos"
+                                ]
+                            ),
+                            aviso_inicial_segundos=(
+                                configuracoes_exportacao[
+                                    "aviso_inicial_segundos"
+                                ]
+                            ),
+                            aviso_lento_segundos=(
+                                configuracoes_exportacao[
+                                    "aviso_lento_segundos"
+                                ]
+                            ),
+                            aviso_reforcado_segundos=(
+                                configuracoes_exportacao[
+                                    "aviso_reforcado_segundos"
+                                ]
+                            ),
+                            ao_evento=self._receber_evento_rotina,
+                            cancelado=self._cancelamento.is_set,
+                            modo_manual_ativo=self._modo_manual.is_set
+                        )
                     )
-                )
-            )
+                    break
+
+                except SessaoSinanExpirada:
+                    self._verificar_cancelamento()
+                    recuperacoes_sessao += 1
+
+                    if (
+                        recuperacoes_sessao
+                        > self.MAX_RECUPERACOES_SESSAO
+                    ):
+                        raise RuntimeError(
+                            "O SINAN encerrou a sessão repetidamente. "
+                            "A rotina foi interrompida para evitar "
+                            "novas autenticações sem limite."
+                        )
+
+                    self._modo_manual.clear()
+                    self._emitir(
+                        self.EVENTO_STATUS,
+                        mensagem=(
+                            "Sessão expirada detectada. Refazendo o "
+                            "login para retomar as mesmas solicitações..."
+                        ),
+                        recuperacao_sessao=True,
+                        estado="recuperando",
+                        tentativa=recuperacoes_sessao
+                    )
+
+                    if navegador is not None:
+                        navegador.fechar()
+
+                    navegador = None
+                    exportacao = None
+                    self._verificar_cancelamento()
+                    navegador, exportacao = (
+                        self._abrir_sinan_autenticado(
+                            recuperacao=True,
+                            tentativa=recuperacoes_sessao
+                        )
+                    )
+
+                    self._emitir(
+                        self.EVENTO_STATUS,
+                        mensagem=(
+                            "Sessão restabelecida. Retomando os mesmos "
+                            "números na consulta de exportações DBF."
+                        ),
+                        recuperacao_sessao=True,
+                        estado="recuperada",
+                        tentativa=recuperacoes_sessao
+                    )
 
             self._verificar_cancelamento()
 
@@ -487,17 +493,30 @@ class AtualizacaoBasesService:
             self._emitir(
                 self.EVENTO_ATUALIZAR
             )
+            mensagem_conclusao = (
+                "Destinos selecionados atualizados com sucesso: "
+                f"{selecao_destinos.resumo()}."
+            )
+
+            if recuperacoes_sessao:
+                ocorrencias = (
+                    "vez" if recuperacoes_sessao == 1 else "vezes"
+                )
+                mensagem_conclusao += (
+                    " A sessão do SINAN foi recuperada "
+                    f"automaticamente {recuperacoes_sessao} "
+                    f"{ocorrencias}."
+                )
+
             self._emitir(
                 self.EVENTO_CONCLUIDO,
-                mensagem=(
-                    "Destinos selecionados atualizados com sucesso: "
-                    f"{selecao_destinos.resumo()}."
-                ),
+                mensagem=mensagem_conclusao,
                 resultado=resultado,
                 selecao_destinos=selecao_destinos.para_dict(),
                 checkpoint_completo=(
                     selecao_destinos.esta_completa
-                )
+                ),
+                recuperacoes_sessao=recuperacoes_sessao
             )
 
         except ProcessamentoBasesPendente as pendencia:
@@ -551,6 +570,80 @@ class AtualizacaoBasesService:
                 self._executando = False
                 self._modo_manual_disponivel = False
                 self._modo_manual.clear()
+
+    def _abrir_sinan_autenticado(
+        self,
+        recuperacao: bool = False,
+        tentativa: int = 0
+    ) -> tuple[NavegadorSinan, ExportacaoBasesDbf]:
+        """Abre uma sessão e aguarda a autenticação de forma cancelável."""
+
+        self._etapa_atual = self.ETAPA_ACESSO
+        navegador = NavegadorSinan(
+            permitir_downloads=True,
+            usar_login_automatico=True
+        )
+
+        self._emitir_etapa(
+            etapa=self._etapa_atual,
+            estado="em_andamento" if recuperacao else "iniciada",
+            mensagem=(
+                "Abrindo uma nova sessão segura do SINAN."
+                if recuperacao
+                else "Abrindo o navegador seguro do SINAN."
+            ),
+            dados={
+                "recuperacao_sessao": recuperacao,
+                "tentativa": tentativa
+            }
+        )
+
+        try:
+            pagina = navegador.abrir()
+
+            if navegador.login_automatico_concluido:
+                mensagem_login = (
+                    "Login automático concluído com segurança."
+                )
+            else:
+                mensagem_login = navegador.obter_mensagem_espera_login()
+
+            self._emitir_etapa(
+                etapa=self._etapa_atual,
+                estado="em_andamento",
+                mensagem=mensagem_login,
+                dados={
+                    "recuperacao_sessao": recuperacao,
+                    "tentativa": tentativa
+                }
+            )
+
+            if not navegador.login_automatico_concluido:
+                self._aguardar_login_cancelavel(
+                    navegador=navegador,
+                    tempo_limite_segundos=600
+                )
+
+            self._emitir_etapa(
+                etapa=self._etapa_atual,
+                estado="concluida",
+                mensagem=(
+                    "Nova sessão autenticada. A consulta das "
+                    "exportações será retomada."
+                    if recuperacao
+                    else "Login detectado. A automação pode continuar."
+                ),
+                dados={
+                    "recuperacao_sessao": recuperacao,
+                    "tentativa": tentativa
+                }
+            )
+
+            return navegador, ExportacaoBasesDbf(pagina)
+
+        except Exception:
+            navegador.fechar()
+            raise
 
     def _executar_correcao_manual(
         self,
