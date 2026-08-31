@@ -13,6 +13,7 @@ from app.services.qualifica.interface_72h import (
     criar_nome_relatorio_72h,
     formatar_data_digitada,
     obter_caminho_dicionario_municipios,
+    validar_nome_relatorio_72h,
 )
 from app.services.qualifica.relatorio_72h_service import (
     Relatorio72hService,
@@ -50,14 +51,21 @@ class QualificaInterfaceTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DD/MM/AAAA"):
             converter_data_interface("31/02/2026")
 
-    def test_nome_do_relatorio_reflete_periodo_sem_texto_livre(self):
+    def test_nome_do_relatorio_sugere_periodo_e_aceita_edicao(self):
         self.assertEqual(
             criar_nome_relatorio_72h(
                 date(2026, 1, 4),
                 date(2026, 1, 31),
             ),
-            "Relatorio_72h_04-01-2026_a_31-01-2026.xlsx",
+            "Qualifica_72h_04-01-2026_a_31-01-2026.xlsx",
         )
+
+        self.assertEqual(
+            validar_nome_relatorio_72h("Indicador estadual janeiro"),
+            "Indicador estadual janeiro.xlsx",
+        )
+        with self.assertRaisesRegex(ValueError, "caracteres"):
+            validar_nome_relatorio_72h("pasta/relatorio.xlsx")
 
         with self.assertRaisesRegex(ValueError, "posterior"):
             criar_nome_relatorio_72h(
@@ -107,7 +115,29 @@ class QualificaInterfaceTestCase(unittest.TestCase):
             pagina_configuracoes,
         )
 
-    def test_sidebar_possui_estado_recolhido_e_expandido(self):
+    def test_dicionario_personalizado_e_opcional_e_validado(self):
+        with tempfile.TemporaryDirectory() as temporario:
+            arquivo = Path(temporario) / "municipios_atualizados.xlsx"
+            arquivo.touch()
+            service = ConfiguracoesService(
+                Path(temporario) / "configuracoes.json"
+            )
+
+            self.assertEqual(
+                service.validar_caminho_dicionario_qualifica(""),
+                "",
+            )
+            self.assertEqual(
+                service.validar_caminho_dicionario_qualifica(arquivo),
+                str(arquivo.resolve()),
+            )
+
+            with self.assertRaisesRegex(ValueError, "XLSX"):
+                service.validar_caminho_dicionario_qualifica(
+                    Path(temporario) / "municipios.csv"
+                )
+
+    def test_sidebar_expande_por_clique_sem_animacao_de_layout(self):
         sidebar = (
             RAIZ_PROJETO
             / "app"
@@ -117,9 +147,37 @@ class QualificaInterfaceTestCase(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("LARGURA_RECOLHIDA = 72", sidebar)
         self.assertIn("LARGURA_EXPANDIDA = 230", sidebar)
-        self.assertIn("def expandir(self)", sidebar)
-        self.assertIn("def recolher(self)", sidebar)
+        self.assertIn("def alternar_expansao(self)", sidebar)
+        self.assertIn("command=self.alternar_expansao", sidebar)
         self.assertIn("def selecionar_qualifica", sidebar)
+        self.assertIn('text=""', sidebar)
+        self.assertIn("image=self._icone_expandir", sidebar)
+        self.assertIn('border_width=0', sidebar)
+        self.assertNotIn('text="‹ Recolher"', sidebar)
+        self.assertNotIn('widget.bind("<Enter>"', sidebar)
+        self.assertNotIn("PASSOS_ANIMACAO", sidebar)
+
+        janela = (
+            RAIZ_PROJETO
+            / "app"
+            / "gui"
+            / "windows"
+            / "main_window.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("self.sidebar.grid(", janela)
+        self.assertIn("self.content_area.grid(", janela)
+        self.assertNotIn("self.sidebar.place(", janela)
+
+    def test_calendario_permite_escolher_mes_e_ano(self):
+        seletor = (
+            RAIZ_PROJETO
+            / "app"
+            / "gui"
+            / "components"
+            / "seletor_data.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("self.combo_mes = ctk.CTkComboBox", seletor)
+        self.assertIn("self.combo_ano = ctk.CTkComboBox", seletor)
 
     def test_build_inclui_dicionario_do_qualifica(self):
         especificacao = (

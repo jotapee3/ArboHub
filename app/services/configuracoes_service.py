@@ -19,7 +19,7 @@ class ConfiguracoesService:
     cada conta do Windows tenha suas próprias preferências.
     """
 
-    VERSAO_CONFIGURACOES = 8
+    VERSAO_CONFIGURACOES = 9
 
     PAGINAS_VALIDAS = {
         "inicio",
@@ -154,6 +154,9 @@ class ConfiguracoesService:
             "sinan": {
                 "login_automatico": False
             },
+            "qualifica": {
+                "dicionario_municipios": ""
+            },
             "notificacoes": {
                 "som_conclusao": True,
                 "som_atencao": True,
@@ -211,6 +214,29 @@ class ConfiguracoesService:
             "dengue": "Teste{ano}_AB1.dbf",
             "chikungunya": "Teste{ano}_AB2.dbf"
         }
+
+    def validar_caminho_dicionario_qualifica(
+        self,
+        caminho: str | Path
+    ) -> str:
+        """Valida um dicionário personalizado sem torná-lo obrigatório."""
+
+        texto = self._normalizar_caminho(caminho)
+        if not texto:
+            return ""
+
+        arquivo = Path(texto).expanduser()
+        if arquivo.suffix.casefold() != ".xlsx":
+            raise ValueError(
+                "O dicionário do Qualifica precisa ser um arquivo XLSX."
+            )
+        if not arquivo.is_file():
+            raise FileNotFoundError(
+                "O dicionário personalizado do Qualifica não foi "
+                f"encontrado: {arquivo}"
+            )
+
+        return str(arquivo.resolve())
 
     def validar_nome_arquivo_teste(
         self,
@@ -871,6 +897,10 @@ class ConfiguracoesService:
             "sinan",
             {}
         )
+        qualifica = configuracoes.get(
+            "qualifica",
+            {}
+        )
         notificacoes = configuracoes.get(
             "notificacoes",
             {}
@@ -1002,6 +1032,14 @@ class ConfiguracoesService:
                     sinan.get(
                         "login_automatico",
                         False
+                    )
+                )
+            },
+            "qualifica": {
+                "dicionario_municipios": self._normalizar_caminho(
+                    qualifica.get(
+                        "dicionario_municipios",
+                        ""
                     )
                 )
             },

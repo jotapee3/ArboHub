@@ -19,12 +19,14 @@ from app.gui.components.seletor_data import (
     SemanaEpidemiologicaDialog,
 )
 from app.gui.themes.colors import Colors
+from app.services.configuracoes_service import ConfiguracoesService
 from app.services.qualifica.interface_72h import (
     converter_data_interface,
     criar_nome_relatorio_72h,
     formatar_data_digitada,
     obter_caminho_dicionario_municipios,
     obter_pasta_padrao_relatorios_72h,
+    validar_nome_relatorio_72h,
 )
 from app.services.qualifica.relatorio_72h_service import (
     Relatorio72hService,
@@ -47,8 +49,19 @@ class QualificaPage(ctk.CTkScrollableFrame):
         )
 
         self.relatorio_service = Relatorio72hService()
+        self.configuracoes_service = ConfiguracoesService()
+        configuracoes = self.configuracoes_service.carregar()
+        caminho_personalizado = str(
+            configuracoes.get("qualifica", {}).get(
+                "dicionario_municipios",
+                "",
+            )
+        ).strip()
+        self.dicionario_personalizado = bool(caminho_personalizado)
         self.caminho_dicionario = (
-            obter_caminho_dicionario_municipios()
+            Path(caminho_personalizado)
+            if caminho_personalizado
+            else obter_caminho_dicionario_municipios()
         )
         self.pasta_saida = obter_pasta_padrao_relatorios_72h()
         self.caminhos_dbf: list[Path] = []
@@ -56,10 +69,12 @@ class QualificaPage(ctk.CTkScrollableFrame):
         self._eventos: queue.Queue[dict] = queue.Queue()
         self._thread: Thread | None = None
         self._polling_id = None
+        self._redimensionamento_id = None
         self._aguardando_resultado = False
         self._pagina_destruida = False
         self._formatando_data = False
         self._layout_vertical: bool | None = None
+        self._ultimo_nome_sugerido = ""
 
         hoje = date.today()
         inicio_mes = hoje.replace(day=1)
@@ -69,6 +84,7 @@ class QualificaPage(ctk.CTkScrollableFrame):
         self.data_final_var = tk.StringVar(
             value=hoje.strftime("%d/%m/%Y")
         )
+        self.nome_saida_var = tk.StringVar(value="")
 
         self._icone_calendario = criar_icone_navegacao(
             "calendario",
@@ -91,6 +107,10 @@ class QualificaPage(ctk.CTkScrollableFrame):
             lambda *_: self._ao_alterar_data(
                 self.data_final_var
             ),
+        )
+        self.nome_saida_var.trace_add(
+            "write",
+            lambda *_: self._atualizar_prontidao(),
         )
 
         self.bind("<Configure>", self._ao_redimensionar, add="+")
@@ -465,7 +485,7 @@ class QualificaPage(ctk.CTkScrollableFrame):
         self.label_dicionario = ctk.CTkLabel(
             campo,
             text=(
-                "dicionario_municipios.xlsx · carregado "
+                f"{self.caminho_dicionario.name} · carregando "
                 "automaticamente"
             ),
             text_color=Colors.TEXT_PRIMARY,
@@ -486,8 +506,8 @@ class QualificaPage(ctk.CTkScrollableFrame):
         self.label_dicionario_ajuda = ctk.CTkLabel(
             master,
             text=(
-                "O arquivo acompanha o ArboHub e não precisa ser "
-                "selecionado a cada execução."
+                "Para substituir o arquivo, use Configurações → "
+                "Dados e arquivos → Dicionário do Qualifica."
             ),
             text_color=Colors.TEXT_MUTED,
             font=ctk.CTkFont(
@@ -758,7 +778,7 @@ class QualificaPage(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             self.painel_destino,
-            text="Excel gerado automaticamente",
+            text="Arquivo Excel de saída — nome editável",
             text_color=Colors.TEXT_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
@@ -792,23 +812,26 @@ class QualificaPage(ctk.CTkScrollableFrame):
             pady=(2, 0),
         )
 
-        self.label_nome_saida = ctk.CTkLabel(
+        self.entry_nome_saida = ctk.CTkEntry(
             self.painel_destino,
-            text="",
+            textvariable=self.nome_saida_var,
+            fg_color=Colors.BACKGROUND,
+            border_width=1,
+            border_color=Colors.INPUT_BORDER,
             text_color=Colors.TEXT_SECONDARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=9,
+                size=10,
                 weight="bold",
             ),
-            anchor="w",
+            height=30,
         )
-        self.label_nome_saida.grid(
+        self.entry_nome_saida.grid(
             row=2,
             column=1,
             sticky="ew",
             padx=(5, 8),
-            pady=(2, 11),
+            pady=(5, 11),
         )
 
         self.botao_alterar_pasta = ctk.CTkButton(
@@ -1132,7 +1155,7 @@ class QualificaPage(ctk.CTkScrollableFrame):
                 text_color=Colors.ERROR,
             )
             self.label_dicionario.configure(
-                text="Dicionário padrão indisponível",
+                text="Dicionário configurado indisponível",
                 text_color=Colors.ERROR,
             )
             self.label_dicionario_ajuda.configure(text=str(erro))
@@ -1141,8 +1164,13 @@ class QualificaPage(ctk.CTkScrollableFrame):
 
         self.label_dicionario.configure(
             text=(
-                "dicionario_municipios.xlsx · carregado "
-                f"automaticamente · {len(municipios)} municípios"
+                f"{self.caminho_dicionario.name} · "
+                f"{len(municipios)} municípios · "
+                + (
+                    "personalizado"
+                    if self.dicionario_personalizado
+                    else "padrão do ArboHub"
+                )
             )
         )
         self._atualizar_prontidao()
@@ -1395,9 +1423,10 @@ class QualificaPage(ctk.CTkScrollableFrame):
         self._atualizar_destino_visual()
 
     def _atualizar_destino_visual(self):
-        if not hasattr(self, "label_nome_saida"):
+        if not hasattr(self, "entry_nome_saida"):
             return
         self.label_pasta_saida.configure(text=str(self.pasta_saida))
+        nome_sugerido = ""
         try:
             inicio = converter_data_interface(
                 self.data_inicial_var.get()
@@ -1405,10 +1434,14 @@ class QualificaPage(ctk.CTkScrollableFrame):
             fim = converter_data_interface(
                 self.data_final_var.get()
             )
-            nome = criar_nome_relatorio_72h(inicio, fim)
+            nome_sugerido = criar_nome_relatorio_72h(inicio, fim)
         except (TypeError, ValueError):
-            nome = "O nome será definido após informar as duas datas."
-        self.label_nome_saida.configure(text=nome)
+            pass
+
+        nome_atual = self.nome_saida_var.get().strip()
+        if not nome_atual or nome_atual == self._ultimo_nome_sugerido:
+            self.nome_saida_var.set(nome_sugerido)
+        self._ultimo_nome_sugerido = nome_sugerido
 
     def _atualizar_prontidao(self):
         if not hasattr(self, "botao_gerar"):
@@ -1417,6 +1450,7 @@ class QualificaPage(ctk.CTkScrollableFrame):
         dicionario_ok = self.caminho_dicionario.is_file()
         dbfs_ok = bool(self.caminhos_dbf)
         datas_ok = False
+        nome_ok = False
         try:
             inicio = converter_data_interface(
                 self.data_inicial_var.get()
@@ -1428,7 +1462,21 @@ class QualificaPage(ctk.CTkScrollableFrame):
         except ValueError:
             pass
 
-        pronto = dicionario_ok and dbfs_ok and datas_ok and not processando
+        try:
+            validar_nome_relatorio_72h(
+                self.nome_saida_var.get()
+            )
+            nome_ok = True
+        except ValueError:
+            pass
+
+        pronto = (
+            dicionario_ok
+            and dbfs_ok
+            and datas_ok
+            and nome_ok
+            and not processando
+        )
         self.botao_gerar.configure(
             state="normal" if pronto else "disabled"
         )
@@ -1436,11 +1484,13 @@ class QualificaPage(ctk.CTkScrollableFrame):
         if processando:
             return
         if not dicionario_ok:
-            texto = "O dicionário padrão do Qualifica está indisponível."
+            texto = "O dicionário configurado do Qualifica está indisponível."
         elif not dbfs_ok:
             texto = "Selecione pelo menos um banco DBF para continuar."
         elif not datas_ok:
             texto = "Confira as datas inicial e final do relatório."
+        elif not nome_ok:
+            texto = "Informe um nome válido para o arquivo Excel."
         else:
             texto = "Tudo pronto para gerar o relatório."
         self.label_status.configure(text=texto)
@@ -1460,14 +1510,17 @@ class QualificaPage(ctk.CTkScrollableFrame):
             fim = converter_data_interface(
                 self.data_final_var.get()
             )
-            nome = criar_nome_relatorio_72h(inicio, fim)
+            nome = validar_nome_relatorio_72h(
+                self.nome_saida_var.get()
+            )
             if not self.caminhos_dbf:
                 raise ValueError(
                     "Selecione pelo menos um banco DBF do SINAN."
                 )
             if not self.caminho_dicionario.is_file():
                 raise FileNotFoundError(
-                    "O dicionário padrão do Qualifica não foi encontrado."
+                    "O dicionário configurado do Qualifica não foi "
+                    "encontrado. Confira Configurações → Dados e arquivos."
                 )
             inexistentes = [
                 caminho.name
@@ -1699,9 +1752,18 @@ class QualificaPage(ctk.CTkScrollableFrame):
     def _ao_redimensionar(self, event=None):
         if event is not None and event.widget is not self:
             return
-        self.after(40, self._ajustar_layout_responsivo)
+        if self._redimensionamento_id is not None:
+            try:
+                self.after_cancel(self._redimensionamento_id)
+            except Exception:
+                pass
+        self._redimensionamento_id = self.after(
+            80,
+            self._ajustar_layout_responsivo
+        )
 
     def _ajustar_layout_responsivo(self):
+        self._redimensionamento_id = None
         if not self.winfo_exists():
             return
         largura = self.winfo_width()
@@ -1753,3 +1815,9 @@ class QualificaPage(ctk.CTkScrollableFrame):
             except Exception:
                 pass
             self._polling_id = None
+        if self._redimensionamento_id is not None:
+            try:
+                self.after_cancel(self._redimensionamento_id)
+            except Exception:
+                pass
+            self._redimensionamento_id = None

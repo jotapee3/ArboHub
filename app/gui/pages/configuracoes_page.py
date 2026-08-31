@@ -24,6 +24,12 @@ from app.services.manutencao_service import (
     ManutencaoService,
     PreviaResetBases
 )
+from app.services.qualifica.interface_72h import (
+    obter_caminho_dicionario_municipios
+)
+from app.services.qualifica.relatorio_72h_service import (
+    Relatorio72hService
+)
 from app.services.notificacoes_service import (
     NotificacoesService
 )
@@ -281,6 +287,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         operacional = self.configuracoes[
             "operacional"
         ]
+        qualifica = self.configuracoes.get(
+            "qualifica",
+            {}
+        )
         caminhos = operacional[
             "caminhos"
         ]
@@ -420,6 +430,16 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
         self.label_status_som = None
 
+        self.dicionario_qualifica_var = ctk.StringVar(
+            value=str(
+                qualifica.get(
+                    "dicionario_municipios",
+                    ""
+                )
+            )
+        )
+        self.label_status_dicionario_qualifica = None
+
         self.caminhos_vars = {
             chave: ctk.StringVar(
                 value=str(
@@ -503,6 +523,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         self.label_status_credencial = None
         self.entry_senha_sinan = None
         self.label_status_som = None
+        self.label_status_dicionario_qualifica = None
         self.status_caminhos.clear()
 
     def _rolar_para_topo(self):
@@ -540,6 +561,7 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 self._criar_secao_escala_interface
             ),
             "dados": (
+                self._criar_secao_dicionario_qualifica,
                 self._criar_secao_caminhos_operacionais,
             ),
             "automacao": (
@@ -1715,6 +1737,210 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
 
         self._atualizar_status_credencial()
+
+    def _criar_secao_dicionario_qualifica(self):
+        painel = self._criar_painel(
+            linha=3,
+            titulo="Dicionário de municípios do Qualifica",
+            descricao=(
+                "O ArboHub usa automaticamente o dicionário incluído "
+                "na instalação. Se a relação oficial mudar, selecione "
+                "aqui um novo arquivo XLSX."
+            )
+        )
+
+        card = ctk.CTkFrame(
+            painel,
+            fg_color=Colors.BACKGROUND,
+            corner_radius=8,
+            border_width=1,
+            border_color=Colors.BORDER
+        )
+        card.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 20)
+        )
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="Arquivo personalizado (opcional)",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=11,
+                weight="bold"
+            ),
+            text_color=Colors.TEXT_PRIMARY,
+            anchor="w"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(13, 5)
+        )
+
+        entrada = ctk.CTkEntry(
+            card,
+            textvariable=self.dicionario_qualifica_var,
+            placeholder_text=(
+                "Vazio = usar o dicionário que acompanha o ArboHub"
+            ),
+            height=36,
+            fg_color=Colors.INPUT,
+            border_color=Colors.INPUT_BORDER,
+            text_color=Colors.TEXT_PRIMARY
+        )
+        entrada.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=14
+        )
+
+        botoes = ctk.CTkFrame(
+            card,
+            fg_color="transparent"
+        )
+        botoes.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(10, 0)
+        )
+        botoes.grid_columnconfigure(3, weight=1)
+
+        for coluna, (texto, comando) in enumerate((
+            (
+                "Escolher XLSX",
+                self._selecionar_dicionario_qualifica
+            ),
+            (
+                "Validar",
+                self._validar_dicionario_qualifica
+            ),
+            (
+                "Restaurar padrão",
+                self._restaurar_dicionario_qualifica
+            )
+        )):
+            ctk.CTkButton(
+                botoes,
+                text=texto,
+                command=comando,
+                height=31,
+                corner_radius=6,
+                fg_color=Colors.BUTTON,
+                hover_color=Colors.BUTTON_HOVER,
+                border_width=1,
+                border_color=Colors.BUTTON_BORDER,
+                text_color=Colors.TEXT_SECONDARY,
+                font=ctk.CTkFont(
+                    family="Segoe UI",
+                    size=10,
+                    weight="bold"
+                )
+            ).grid(
+                row=0,
+                column=coluna,
+                padx=(0, 8)
+            )
+
+        self.label_status_dicionario_qualifica = ctk.CTkLabel(
+            card,
+            text="",
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=10
+            ),
+            text_color=Colors.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=820
+        )
+        self.label_status_dicionario_qualifica.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=14,
+            pady=(9, 13)
+        )
+        self.after_idle(
+            lambda: self._validar_dicionario_qualifica(
+                exibir_dialogo=False
+            )
+        )
+
+    def _selecionar_dicionario_qualifica(self):
+        selecionado = filedialog.askopenfilename(
+            parent=self.winfo_toplevel(),
+            title="Selecionar dicionário de municípios do Qualifica",
+            filetypes=(
+                ("Planilha do Excel", "*.xlsx"),
+                ("Todos os arquivos", "*.*")
+            )
+        )
+        if not selecionado:
+            return
+
+        self.dicionario_qualifica_var.set(selecionado)
+        self._validar_dicionario_qualifica()
+
+    def _validar_dicionario_qualifica(
+        self,
+        exibir_dialogo: bool = True
+    ) -> str | None:
+        try:
+            personalizado = (
+                self.configuracoes_service
+                .validar_caminho_dicionario_qualifica(
+                    self.dicionario_qualifica_var.get()
+                )
+            )
+            caminho = (
+                Path(personalizado)
+                if personalizado
+                else obter_caminho_dicionario_municipios()
+            )
+            municipios = Relatorio72hService().carregar_municipios(
+                caminho
+            )
+        except Exception as erro:
+            if self.label_status_dicionario_qualifica is not None:
+                self.label_status_dicionario_qualifica.configure(
+                    text=f"! Dicionário inválido — {erro}",
+                    text_color=Colors.ERROR
+                )
+            if exibir_dialogo:
+                mostrar_dialogo_arbohub(
+                    master=self.winfo_toplevel(),
+                    titulo="Dicionário não validado",
+                    mensagem=str(erro),
+                    tipo="erro",
+                    texto_botao="Entendi"
+                )
+            return None
+
+        modo = "Personalizado" if personalizado else "Padrão do ArboHub"
+        if self.label_status_dicionario_qualifica is not None:
+            self.label_status_dicionario_qualifica.configure(
+                text=(
+                    f"✓ {modo} · {len(municipios)} municípios · "
+                    f"{caminho}"
+                ),
+                text_color=Colors.SUCCESS
+            )
+        return personalizado
+
+    def _restaurar_dicionario_qualifica(self):
+        self.dicionario_qualifica_var.set("")
+        self._validar_dicionario_qualifica(
+            exibir_dialogo=False
+        )
 
     def _criar_secao_caminhos_operacionais(self):
         painel = self._criar_painel(
@@ -4283,6 +4509,17 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
 
         try:
             self._validar_configuracao_login()
+            dicionario_qualifica = (
+                self.configuracoes_service
+                .validar_caminho_dicionario_qualifica(
+                    self.dicionario_qualifica_var.get()
+                )
+            )
+            Relatorio72hService().carregar_municipios(
+                Path(dicionario_qualifica)
+                if dicionario_qualifica
+                else obter_caminho_dicionario_municipios()
+            )
             caminhos = (
                 self._validar_caminhos_para_salvar()
             )
@@ -4312,8 +4549,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 titulo="Configurações não salvas",
                 mensagem=(
                     "Revise o acesso ao SINAN, as notificações, "
-                    "a supervisão, as pastas, os nomes dos arquivos "
-                    "e os tempos operacionais.\n\n"
+                    "a supervisão, o dicionário do Qualifica, as "
+                    "pastas, os nomes dos arquivos e os tempos "
+                    "operacionais.\n\n"
                     f"Detalhe: {erro}"
                 ),
                 tipo="erro",
@@ -4350,6 +4588,9 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
                 "login_automatico": (
                     self.login_automatico_var.get()
                 )
+            },
+            "qualifica": {
+                "dicionario_municipios": dicionario_qualifica
             },
             "notificacoes": {
                 "som_conclusao": (
@@ -4457,6 +4698,10 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         operacional = self.configuracoes[
             "operacional"
         ]
+        qualifica = self.configuracoes.get(
+            "qualifica",
+            {}
+        )
         caminhos = operacional[
             "caminhos"
         ]
@@ -4519,6 +4764,18 @@ class ConfiguracoesPage(ctk.CTkScrollableFrame):
         )
         self.senha_sinan_var.set("")
         self._atualizar_status_credencial()
+
+        self.dicionario_qualifica_var.set(
+            str(
+                qualifica.get(
+                    "dicionario_municipios",
+                    ""
+                )
+            )
+        )
+        self._validar_dicionario_qualifica(
+            exibir_dialogo=False
+        )
 
         self.som_conclusao_var.set(
             bool(

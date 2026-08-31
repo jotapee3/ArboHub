@@ -125,6 +125,12 @@ agregados. O relatório de 72 horas executa o serviço em uma thread de trabalho
 carrega o dicionário institucional empacotado e publica o XLSX somente depois
 da validação atômica realizada pelo serviço.
 
+O acompanhamento das exportações DBF verifica a autenticação antes de cada
+nova atualização da tabela. Se o cabeçalho indicar `Sessão Expirada!`, mesmo
+com URL protegida e tabela ainda visível, a camada de serviço encerra a sessão,
+refaz o login e retoma os números de solicitação já registrados sem criar um
+novo lote.
+
 ## Limites atuais
 
 - não existe servidor ou sincronização entre computadores;

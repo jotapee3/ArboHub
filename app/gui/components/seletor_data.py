@@ -43,10 +43,16 @@ class CalendarioDialog(ctk.CTkToplevel):
         self.data_selecionada = data_atual
         self.ano_exibido = data_atual.year
         self.mes_exibido = data_atual.month
+        self.variavel_mes = tk.StringVar(
+            value=MESES[data_atual.month - 1]
+        )
+        self.variavel_ano = tk.StringVar(
+            value=str(data_atual.year)
+        )
         self.ao_selecionar = ao_selecionar
 
         self.title("ArboHub — Selecionar data")
-        self.geometry("340x410")
+        self.geometry("380x410")
         self.resizable(False, False)
         self.configure(fg_color=Colors.BACKGROUND)
         self.transient(master.winfo_toplevel())
@@ -90,17 +96,64 @@ class CalendarioDialog(ctk.CTkToplevel):
             pady=16,
         )
 
-        self.label_mes = ctk.CTkLabel(
+        self.combo_mes = ctk.CTkComboBox(
             cabecalho,
-            text="",
+            values=list(MESES),
+            variable=self.variavel_mes,
+            command=self._selecionar_mes,
+            state="readonly",
+            width=132,
+            height=34,
+            fg_color=Colors.INPUT,
+            border_color=Colors.INPUT_BORDER,
+            button_color=Colors.BUTTON,
+            button_hover_color=Colors.BUTTON_HOVER,
+            dropdown_fg_color=Colors.SURFACE,
+            dropdown_text_color=Colors.TEXT_PRIMARY,
             text_color=Colors.TEXT_PRIMARY,
             font=ctk.CTkFont(
                 family="Segoe UI",
-                size=15,
+                size=12,
                 weight="bold",
             ),
         )
-        self.label_mes.grid(row=0, column=1, sticky="ew")
+        self.combo_mes.grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 5),
+        )
+
+        anos = [
+            str(ano)
+            for ano in range(date.today().year + 2, 1979, -1)
+        ]
+        self.combo_ano = ctk.CTkComboBox(
+            cabecalho,
+            values=anos,
+            variable=self.variavel_ano,
+            command=self._selecionar_ano,
+            state="readonly",
+            width=84,
+            height=34,
+            fg_color=Colors.INPUT,
+            border_color=Colors.INPUT_BORDER,
+            button_color=Colors.BUTTON,
+            button_hover_color=Colors.BUTTON_HOVER,
+            dropdown_fg_color=Colors.SURFACE,
+            dropdown_text_color=Colors.TEXT_PRIMARY,
+            text_color=Colors.TEXT_PRIMARY,
+            font=ctk.CTkFont(
+                family="Segoe UI",
+                size=12,
+                weight="bold",
+            ),
+        )
+        self.combo_ano.grid(
+            row=0,
+            column=2,
+            padx=(5, 0),
+        )
 
         self.botao_proximo = ctk.CTkButton(
             cabecalho,
@@ -115,7 +168,7 @@ class CalendarioDialog(ctk.CTkToplevel):
         )
         self.botao_proximo.grid(
             row=0,
-            column=2,
+            column=3,
             padx=(6, 16),
             pady=16,
         )
@@ -235,12 +288,8 @@ class CalendarioDialog(ctk.CTkToplevel):
         )
 
     def _renderizar_dias(self):
-        self.label_mes.configure(
-            text=(
-                f"{MESES[self.mes_exibido - 1]} "
-                f"{self.ano_exibido}"
-            )
-        )
+        self.variavel_mes.set(MESES[self.mes_exibido - 1])
+        self.variavel_ano.set(str(self.ano_exibido))
 
         primeiro_dia, quantidade = calendar.monthrange(
             self.ano_exibido,
@@ -294,6 +343,14 @@ class CalendarioDialog(ctk.CTkToplevel):
         if self.mes_exibido == 13:
             self.mes_exibido = 1
             self.ano_exibido += 1
+        self._renderizar_dias()
+
+    def _selecionar_mes(self, nome_mes: str):
+        self.mes_exibido = MESES.index(nome_mes) + 1
+        self._renderizar_dias()
+
+    def _selecionar_ano(self, ano: str):
+        self.ano_exibido = int(ano)
         self._renderizar_dias()
 
     def _selecionar(self, valor: date):

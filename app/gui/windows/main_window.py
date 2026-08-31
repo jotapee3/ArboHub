@@ -66,6 +66,10 @@ class MainWindow(ctk.CTk):
         self.mainloop()
 
     def criar_interface(self):
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=1)
+
         self.content_area = ContentArea(self)
 
         self.sidebar = Sidebar(
@@ -80,18 +84,17 @@ class MainWindow(ctk.CTk):
             )
         )
 
-        self.content_area.pack(
-            fill="both",
-            expand=True,
-            padx=(Sidebar.LARGURA_RECOLHIDA, 0)
+        self.sidebar.grid(
+            row=0,
+            column=0,
+            sticky="ns"
         )
 
-        self.sidebar.place(
-            x=0,
-            y=0,
-            relheight=1
+        self.content_area.grid(
+            row=0,
+            column=1,
+            sticky="nsew"
         )
-        self.sidebar.lift()
 
     def abrir_inicio(self):
         self.content_area.mostrar_pagina(

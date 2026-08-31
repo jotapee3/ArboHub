@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import cos, pi, sin
 
 import customtkinter as ctk
 from PIL import Image, ImageDraw
@@ -170,41 +171,58 @@ def _desenhar_grafico(desenho: ImageDraw.ImageDraw, cor: str):
 def _desenhar_historico(desenho: ImageDraw.ImageDraw, cor: str):
     largura = round(1.8 * ESCALA_DESENHO)
     desenho.arc(
-        _caixa(4, 4, 20, 20),
-        start=35,
-        end=325,
+        _caixa(5, 5, 19, 19),
+        start=45,
+        end=350,
         fill=cor,
         width=largura,
     )
-    _linha(desenho, ((4, 9), (4, 4.5), (8.5, 4.5)), cor)
-    _linha(desenho, ((12, 7.5), (12, 12.2), (15.5, 14.2)), cor)
+    _linha(
+        desenho,
+        ((5.2, 9), (4.7, 5.1), (8.7, 5.4)),
+        cor,
+        largura=1.8,
+    )
+    _linha(
+        desenho,
+        ((12, 8), (12, 12), (15.2, 13.8)),
+        cor,
+        largura=1.8,
+    )
+    desenho.ellipse(
+        _caixa(11.1, 11.1, 12.9, 12.9),
+        fill=cor,
+    )
 
 
 def _desenhar_configuracoes(
     desenho: ImageDraw.ImageDraw,
     cor: str,
 ):
-    largura = round(1.7 * ESCALA_DESENHO)
+    centro = 12 * ESCALA_DESENHO
+    pontos = []
+    for dente in range(8):
+        centro_angular = -pi / 2 + dente * pi / 4
+        for deslocamento, raio in (
+            (-0.20, 7.3),
+            (-0.12, 9.0),
+            (0.12, 9.0),
+            (0.20, 7.3),
+        ):
+            angulo = centro_angular + deslocamento
+            raio_escalado = raio * ESCALA_DESENHO
+            pontos.append(
+                (
+                    round(centro + cos(angulo) * raio_escalado),
+                    round(centro + sin(angulo) * raio_escalado),
+                )
+            )
+
+    desenho.polygon(pontos, fill=cor)
     desenho.ellipse(
-        _caixa(7.5, 7.5, 16.5, 16.5),
-        outline=cor,
-        width=largura,
+        _caixa(8.6, 8.6, 15.4, 15.4),
+        fill=(0, 0, 0, 0),
     )
-    desenho.ellipse(
-        _caixa(10.4, 10.4, 13.6, 13.6),
-        fill=cor,
-    )
-    for inicio, fim in (
-        ((12, 3), (12, 6)),
-        ((12, 18), (12, 21)),
-        ((3, 12), (6, 12)),
-        ((18, 12), (21, 12)),
-        ((5.6, 5.6), (7.7, 7.7)),
-        ((16.3, 16.3), (18.4, 18.4)),
-        ((18.4, 5.6), (16.3, 7.7)),
-        ((7.7, 16.3), (5.6, 18.4)),
-    ):
-        _linha(desenho, (inicio, fim), cor, largura=1.7)
 
 
 def _desenhar_calendario(desenho: ImageDraw.ImageDraw, cor: str):

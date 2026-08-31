@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from app.core.versao import ROTULO_VERSAO_ARBOHUB
 from app.gui.components.icones_navegacao import (
@@ -13,8 +12,45 @@ from app.gui.components.icones_navegacao import (
 from app.gui.themes.colors import Colors
 
 
+def _criar_icone_chevron(direcao: str) -> ctk.CTkImage:
+    """Cria uma seta simétrica, sem depender do alinhamento da fonte."""
+
+    def desenhar(cor: str) -> Image.Image:
+        escala = 4
+        imagem = Image.new(
+            "RGBA",
+            (24 * escala, 24 * escala),
+            (0, 0, 0, 0),
+        )
+        desenho = ImageDraw.Draw(imagem)
+        if direcao == "esquerda":
+            pontos = ((15, 6), (9, 12), (15, 18))
+        else:
+            pontos = ((9, 6), (15, 12), (9, 18))
+        desenho.line(
+            [(x * escala, y * escala) for x, y in pontos],
+            fill=cor,
+            width=round(1.9 * escala),
+            joint="curve",
+        )
+        return imagem.resize(
+            (24, 24),
+            Image.Resampling.LANCZOS,
+        )
+
+    return ctk.CTkImage(
+        light_image=desenhar(
+            Colors.PALETAS["claro"]["TEXT_SECONDARY"]
+        ),
+        dark_image=desenhar(
+            Colors.PALETAS["escuro"]["TEXT_SECONDARY"]
+        ),
+        size=(18, 18),
+    )
+
+
 class Sidebar(ctk.CTkFrame):
-    """Navegação lateral recolhida que se expande ao receber o mouse."""
+    """Navegação lateral que se expande ou recolhe por clique."""
 
     LARGURA_RECOLHIDA = 72
     LARGURA_EXPANDIDA = 230
@@ -62,19 +98,16 @@ class Sidebar(ctk.CTkFrame):
         self.chave_ativa: str | None = None
         self.imagem_logo = None
         self._expandida = False
-        self._animacao_id = None
-        self._recolhimento_id = None
         self._botoes: dict[str, ctk.CTkButton] = {}
         self._icones_normais: dict[str, ctk.CTkImage] = {}
         self._icones_ativos: dict[str, ctk.CTkImage] = {}
 
         self._criar_icones()
         self._criar_cabecalho()
+        self._criar_controle_expansao()
         self._criar_menu()
         self._criar_rodape()
         self._aplicar_estado_visual(expandida=False)
-
-        self.after(30, self._vincular_eventos_hover)
 
     def _criar_icones(self):
         for chave in self.rotulos:
@@ -88,6 +121,8 @@ class Sidebar(ctk.CTkFrame):
                 tamanho=20,
                 ativo=True,
             )
+        self._icone_expandir = _criar_icone_chevron("direita")
+        self._icone_recolher = _criar_icone_chevron("esquerda")
 
     def _criar_cabecalho(self):
         self.cabecalho = ctk.CTkFrame(
@@ -205,6 +240,26 @@ class Sidebar(ctk.CTkFrame):
         self.botao_sinan = self._botoes["sinan"]
         self.botao_gal = self._botoes["gal"]
         self.botao_qualifica = self._botoes["qualifica"]
+
+    def _criar_controle_expansao(self):
+        self.botao_alternar = ctk.CTkButton(
+            self,
+            text="",
+            image=self._icone_expandir,
+            command=self.alternar_expansao,
+            width=52,
+            height=40,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color=Colors.SURFACE_HOVER,
+            border_width=0,
+            anchor="center",
+        )
+        self.botao_alternar.pack(
+            anchor="center",
+            padx=10,
+            pady=(0, 6),
+        )
 
     def _criar_botao_menu(
         self,
@@ -328,61 +383,40 @@ class Sidebar(ctk.CTkFrame):
         self.selecionar_botao("configuracoes")
 
     # ------------------------------------------------------------------
-    # Expansão e recolhimento
+    # Expansão e recolhimento por clique
     # ------------------------------------------------------------------
 
-    def _vincular_eventos_hover(self):
-        for widget in self._iterar_widgets(self):
-            widget.bind("<Enter>", self._ao_entrar, add="+")
-            widget.bind("<Leave>", self._ao_sair, add="+")
-            widget.bind("<FocusIn>", self._ao_entrar, add="+")
-            widget.bind("<FocusOut>", self._ao_sair, add="+")
-
-    @classmethod
-    def _iterar_widgets(cls, widget) -> Iterator:
-        yield widget
-        for filho in widget.winfo_children():
-            yield from cls._iterar_widgets(filho)
-
-    def _ao_entrar(self, _event=None):
-        if self._recolhimento_id is not None:
-            self.after_cancel(self._recolhimento_id)
-            self._recolhimento_id = None
-        self.expandir()
-
-    def _ao_sair(self, _event=None):
-        if self._recolhimento_id is not None:
-            self.after_cancel(self._recolhimento_id)
-        self._recolhimento_id = self.after(
-            140,
-            self._recolher_se_ponteiro_fora,
-        )
-
-    def _recolher_se_ponteiro_fora(self):
-        self._recolhimento_id = None
-        x, y = self.winfo_pointerxy()
-        esquerda = self.winfo_rootx()
-        topo = self.winfo_rooty()
-        direita = esquerda + self.winfo_width()
-        base = topo + self.winfo_height()
-
-        if esquerda <= x <= direita and topo <= y <= base:
-            return
-        self.recolher()
+    def alternar_expansao(self):
+        if self._expandida:
+            self.recolher()
+        else:
+            self.expandir()
 
     def expandir(self):
         if self._expandida:
             return
         self._expandida = True
-        self._aplicar_estado_visual(expandida=True)
-        self._animar_para(self.LARGURA_EXPANDIDA)
+        self.configure(width=self.LARGURA_EXPANDIDA)
+        self.after_idle(
+            self._concluir_expansao
+        )
 
     def recolher(self):
         if not self._expandida:
             return
         self._expandida = False
         self._aplicar_estado_visual(expandida=False)
-        self._animar_para(self.LARGURA_RECOLHIDA)
+        self.after_idle(
+            self._concluir_recolhimento
+        )
+
+    def _concluir_expansao(self):
+        if self._expandida:
+            self._aplicar_estado_visual(expandida=True)
+
+    def _concluir_recolhimento(self):
+        if not self._expandida:
+            self.configure(width=self.LARGURA_RECOLHIDA)
 
     def _aplicar_estado_visual(self, *, expandida: bool):
         if expandida:
@@ -433,37 +467,14 @@ class Sidebar(ctk.CTkFrame):
                 ),
             )
 
-    def _animar_para(self, destino: int):
-        if self._animacao_id is not None:
-            try:
-                self.after_cancel(self._animacao_id)
-            except Exception:
-                pass
-            self._animacao_id = None
-
-        atual = self.winfo_width()
-        if atual <= 1:
-            atual = (
-                self.LARGURA_EXPANDIDA
-                if self._expandida
-                else self.LARGURA_RECOLHIDA
-            )
-
-        distancia = destino - atual
-        if abs(distancia) <= 4:
-            self.configure(width=destino)
-            return
-
-        passo = max(10, round(abs(distancia) * 0.34))
-        nova_largura = atual + (passo if distancia > 0 else -passo)
-        if distancia > 0:
-            nova_largura = min(nova_largura, destino)
-        else:
-            nova_largura = max(nova_largura, destino)
-        self.configure(width=nova_largura)
-
-        def continuar():
-            self._animacao_id = None
-            self._animar_para(destino)
-
-        self._animacao_id = self.after(12, continuar)
+        self.botao_alternar.configure(
+            image=(
+                self._icone_recolher
+                if expandida
+                else self._icone_expandir
+            ),
+        )
+        self.botao_alternar.pack_configure(
+            anchor="e" if expandida else "center",
+            padx=(0, 10) if expandida else 10,
+        )

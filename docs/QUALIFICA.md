@@ -27,7 +27,7 @@ notificações do SINAN.
 ### Entradas
 
 - dicionário XLSX institucional, distribuído com o ArboHub e carregado
-  automaticamente;
+  automaticamente, com substituição opcional em Configurações;
 - um ou mais bancos DBF do SINAN;
 - período inclusivo da data dos primeiros sintomas;
 - pasta de destino do relatório XLSX, sugerida automaticamente.
@@ -68,8 +68,10 @@ módulo disponível. Nela, o operador:
 
 - confere se o dicionário institucional foi reconhecido;
 - seleciona um ou mais DBFs e visualiza a lista completa dos arquivos;
-- informa o período com máscara `DD/MM/AAAA`, calendário ou semana
-  epidemiológica;
+- informa o período com máscara `DD/MM/AAAA`, calendário com seleção direta
+  de mês e ano, ou semana epidemiológica;
+- aceita o nome sugerido `Qualifica_72h_<período>.xlsx` ou permite editá-lo
+  antes da geração;
 - acompanha o processamento sem bloquear a interface;
 - recebe somente totais agregados e pode abrir o relatório ou sua pasta.
 
@@ -77,7 +79,8 @@ Por padrão, os relatórios são gravados em
 `Documentos\Qualifica\Relatorios\72h`, com nome formado pelo período e pelo
 tipo do indicador. Uma nova execução para o mesmo período substitui o relatório
 anterior somente depois da validação do novo arquivo. A pasta pode ser alterada
-para a execução atual.
+para a execução atual. O dicionário personalizado é validado e permanece salvo
+localmente; a opção “Restaurar padrão” volta ao arquivo distribuído.
 
 ### Validação por linha de comando
 
